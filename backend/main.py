@@ -497,13 +497,26 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    if event == "ping":
+        hook_id = payload.get("hook_id")
+        logger.info("GitHub webhook ping acknowledged | hook_id=%s", hook_id)
+        return WebhookAck(accepted=True, action="ping", message="Ping acknowledged")
+
     if event != "pull_request":
         return WebhookAck(accepted=True, action="ignored", message=f"Event {event!r} ignored")
 
     action = payload.get("action", "")
     logger.info("GitHub webhook action | event=%s action=%s", event, action)
-    if action not in {"opened", "synchronize", "reopened"}:
-        logger.info("GitHub webhook ignored | unsupported action=%s", action)
+    supported_actions = {"opened", "synchronize", "reopened", "edited", "ready_for_review"}
+    if action not in supported_actions:
+        pr = payload.get("pull_request", {}) or {}
+        repo = payload.get("repository", {}) or {}
+        logger.info(
+            "GitHub webhook ignored | unsupported action=%s repo=%s pr=%s",
+            action,
+            repo.get("full_name"),
+            pr.get("number"),
+        )
         return WebhookAck(accepted=True, action="ignored", message=f"Action {action!r} ignored")
 
     pr = payload.get("pull_request", {})
