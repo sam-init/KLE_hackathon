@@ -11,6 +11,31 @@ TEXT_EXTENSIONS = {
     ".ts",
     ".tsx",
     ".jsx",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hpp",
+    ".hh",
+    ".cs",
+    ".php",
+    ".rb",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".m",
+    ".mm",
+    ".sql",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".ps1",
+    ".r",
+    ".jl",
+    ".lua",
+    ".dart",
     ".java",
     ".go",
     ".rs",
@@ -43,6 +68,7 @@ IGNORED_DIRS = {
 
 def iter_code_files(root: Path, max_files: int = 300, max_file_size: int = 300_000) -> list[Path]:
     files: list[Path] = []
+    discovered_suffixes: dict[str, int] = {}
     for path in root.rglob("*"):
         if len(files) >= max_files:
             break
@@ -56,7 +82,9 @@ def iter_code_files(root: Path, max_files: int = 300, max_file_size: int = 300_0
                 continue
         if not path.is_file():
             continue
-        if path.suffix.lower() not in TEXT_EXTENSIONS:
+        suffix = path.suffix.lower()
+        discovered_suffixes[suffix] = discovered_suffixes.get(suffix, 0) + 1
+        if suffix not in TEXT_EXTENSIONS:
             continue
         if any(p in IGNORED_DIRS for p in path.parts):
             continue
@@ -68,6 +96,16 @@ def iter_code_files(root: Path, max_files: int = 300, max_file_size: int = 300_0
         if size > max_file_size:
             continue
         files.append(path)
+    if not files:
+        top_suffixes = sorted(discovered_suffixes.items(), key=lambda x: x[1], reverse=True)[:8]
+        if top_suffixes:
+            logger.warning(
+                "No supported files found under %s. Top discovered suffixes: %s",
+                root,
+                ", ".join(f"{k or '<no-ext>'}:{v}" for k, v in top_suffixes),
+            )
+        else:
+            logger.warning("No files discovered under %s during workspace scan", root)
     return files
 
 

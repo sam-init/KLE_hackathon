@@ -36,7 +36,7 @@ from backend.services.state_store import StateStore
 from backend.services.token_crypto import decrypt_token, encrypt_token
 from backend.utils.settings import settings
 from docs.parser import parse_repository
-from docs.repo_loader import iter_code_files
+from docs.repo_loader import TEXT_EXTENSIONS, iter_code_files
 from github.commenter import (
     format_inline_comments,
     post_pr_review,
@@ -156,7 +156,14 @@ def _parse_workspace(repo_root: Path) -> list[dict[str, Any]]:
     files = iter_code_files(repo_root)
     logger.info("Workspace scan complete | root=%s supported_files=%d", repo_root, len(files))
     if not files:
-        raise HTTPException(status_code=400, detail="No supported source files found in repository")
+        supported = ", ".join(sorted(TEXT_EXTENSIONS))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No supported source files found in repository. "
+                f"Supported extensions: {supported}"
+            ),
+        )
     parsed = parse_repository(files)
     for item in parsed:
         raw_path = item.get("path", "")
