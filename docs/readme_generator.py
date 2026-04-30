@@ -161,7 +161,7 @@ def _infer_purpose(parsed_files: list[dict[str, Any]]) -> str:
             hints.append(phrase)
     runtime_hints = [h for h in hints if h != "dependency visualization"]
     if not runtime_hints:
-        return "The repository focuses on processing source files and producing derived developer outputs."
+        return "The repository coordinates domain modules to process inputs and produce actionable outputs."
     joined = ", ".join(dict.fromkeys(runtime_hints))
     return f"The system is built around {joined}, inferred from module names, symbols, and imports."
 
@@ -191,12 +191,12 @@ def _overview_narrative(understanding: dict[str, Any]) -> str:
         capability_text = " Key behavior includes: " + "; ".join(capabilities[:4]) + "."
     if entry and flow_hint:
         return (
-            f"This project executes primarily through `{entry}` and coordinates the workflow across {module_part}. "
+            f"The primary runtime entry is `{entry}`. It coordinates core modules such as {module_part}. "
             f"At runtime, the main flow is: {flow_hint}.{capability_text}"
         )
     if entry:
-        return f"This project executes primarily through `{entry}` and coordinates logic across {module_part}.{capability_text}"
-    return f"This codebase centers on {module_part}, with behavior inferred from imports and symbol relationships.{capability_text}"
+        return f"The primary runtime entry is `{entry}`. It coordinates logic across {module_part}.{capability_text}"
+    return f"This codebase centers on {module_part}, with behavior inferred from imports, paths, and symbol relationships.{capability_text}"
 
 
 def _group_paths(paths: list[str]) -> dict[str, list[str]]:
@@ -270,8 +270,8 @@ def _render_overview(understanding: dict[str, Any]) -> str:
     return (
         f"{narrative}\n\n"
         f"{understanding['purpose']}\n\n"
-        f"- Detected project type: {project_types}\n"
-        f"- Language profile: {lang_line}"
+        f"Project type: {project_types}\n"
+        f"Language profile: {lang_line}"
     )
 
 
@@ -299,7 +299,7 @@ def _render_key_features(understanding: dict[str, Any]) -> str:
         symbols = [str(f.get("name", "")) for f in item.get("functions", [])[:2] if f.get("name")]
         if not symbols:
             continue
-        lines.append(f"- `{item['path']}` provides `{', '.join(symbols)}`")
+        lines.append(f"- `{item['path']}` implements `{', '.join(symbols)}`")
     return "\n".join(lines[:6])
 
 
@@ -327,7 +327,9 @@ def _render_modules(understanding: dict[str, Any], max_items: int = 14) -> str:
         cls = [str(c.get("name")) for c in item.get("classes", [])[:2] if c.get("name")]
         sym = ", ".join([*(f"`{x}`" for x in cls), *(f"`{x}()`" for x in fns)])
         extras = f" Key symbols: {sym}." if sym else ""
-        lines.append(f"- **`{item['path']}`**: {_module_role(item)}{extras}")
+        imports = ", ".join(item.get("imports", [])[:3]) if item.get("imports") else ""
+        import_note = f" Imports: {imports}." if imports else ""
+        lines.append(f"- **`{item['path']}`**: {_module_role(item)}{extras}{import_note}")
     return "\n".join(lines)
 
 
@@ -373,6 +375,14 @@ def _render_license(understanding: dict[str, Any]) -> str:
     return ""
 
 
+def _render_how_it_works(understanding: dict[str, Any]) -> str:
+    steps = understanding["flow_steps"]
+    if not steps:
+        return ""
+    normalized = [s.replace("entrypoint:", "entry") for s in steps]
+    return "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(normalized))
+
+
 def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_name: str = "") -> str:
     understanding = analyze_project(parsed_files)
     if not repo_name:
@@ -382,6 +392,10 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
     overview = _render_overview(understanding)
     if overview:
         sections.append("## Overview\n" + overview)
+
+    how_it_works = _render_how_it_works(understanding)
+    if how_it_works:
+        sections.append("## How It Works\n" + how_it_works)
 
     key_features = _render_key_features(understanding)
     if key_features:
@@ -397,7 +411,7 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
 
     modules = _render_modules(understanding)
     if modules:
-        sections.append("## Modules\n" + modules)
+        sections.append("## Module Responsibilities\n" + modules)
 
     getting_started = _render_getting_started(understanding)
     if getting_started:
