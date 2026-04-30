@@ -36,7 +36,7 @@ function LoadingSkeleton() {
 function EmptyState({ tab }: { tab: ResultTab }) {
   const map = {
     review: { icon: "🔍", title: "Code Reviewer Ready", desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review." },
-    docs:   { icon: "📚", title: "Docs Generator Ready", desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs." },
+    docs: { icon: "📚", title: "Docs Generator Ready", desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs." },
     graphs: { icon: "🕸️", title: "Graphs Ready", desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs." },
   };
   const { icon, title, desc } = map[tab];
@@ -57,10 +57,10 @@ export default function DashboardPage() {
   const [inputMode, setInputMode] = useState<InputMode>("repo");
 
   const [reviewData, setReviewData] = useState<ReviewResponse | null>(null);
-  const [docsData, setDocsData]     = useState<DocsResponse | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [success, setSuccess]       = useState<string | null>(null);
+  const [docsData, setDocsData] = useState<DocsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
@@ -338,9 +338,9 @@ export default function DashboardPage() {
                 {resultTab === "graphs" && (
                   docsData ? (
                     <div className="grid">
-                      <GraphPanel title="Dependency Graph"    graph={docsData.dependency_graph} />
+                      <GraphPanel title="Dependency Graph" graph={docsData.dependency_graph} />
                       <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
-                      <GraphPanel title="Knowledge Graph"     graph={docsData.knowledge_graph} />
+                      <GraphPanel title="Knowledge Graph" graph={docsData.knowledge_graph} />
                     </div>
                   ) : <EmptyState tab="graphs" />
                 )}
