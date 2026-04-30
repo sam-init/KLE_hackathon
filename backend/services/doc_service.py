@@ -100,12 +100,16 @@ class DocumentationService:
             logger.info("README generation source | source=deterministic_draft reason=nim_disabled")
             return base
 
-        top_files = parsed_files[:16]
+        top_files = parsed_files[:36]
         route_hits: list[str] = []
         symbol_hits: list[str] = []
+        module_summaries: list[str] = []
         for item in top_files:
             path = item.get("path", "")
             content = item.get("content", "")
+            module_summaries.append(
+                f"{path} | lang={item.get('language', '')} | functions={len(item.get('functions', []))} | classes={len(item.get('classes', []))} | imports={', '.join(item.get('imports', [])[:4]) or 'none'}"
+            )
             for line in content.splitlines()[:300]:
                 stripped = line.strip()
                 if re.search(r"@app\.(route|get|post|put|patch|delete)\(", stripped):
@@ -117,32 +121,46 @@ class DocumentationService:
 
         facts_block = "\n".join(
             [
-                f"- files: {', '.join(item.get('path', '') for item in top_files[:10])}",
-                f"- symbols: {', '.join(symbol_hits[:16]) or 'none'}",
+                f"- files: {', '.join(item.get('path', '') for item in top_files[:20])}",
+                f"- symbols: {', '.join(symbol_hits[:28]) or 'none'}",
                 f"- route decorators: {', '.join(route_hits[:10]) or 'none'}",
+                f"- module summaries:\n  - " + "\n  - ".join(module_summaries[:18]),
+                f"- structure context: {structure_context}",
             ]
         )
 
-        # LLM-led rewrite with strict grounding constraints.
+        # LLM-first generation with strict grounding constraints.
         prompt = f"""
-Write a polished repository README.
+Generate a polished repository README from the provided repo facts.
 Hard requirements:
-- Stay strictly grounded in provided code facts and draft README.
-- In the first 2 sentences, explain WHAT this project does for a user/operator (not what files exist).
-- Mention at least two concrete code references (function names, endpoints, or modules).
+- Stay strictly grounded in provided code facts.
+- In the first 2 sentences, explain WHAT this project does for a user/operator.
+- Mention at least two concrete code references (function names, endpoints, or modules) in Overview or Key Features.
 - Keep all file paths repo-relative.
 - Do not add frameworks/tools not present.
 - Avoid generic filler text.
 - Keep sections concise and developer-focused.
 - If information is missing, omit that detail.
+- Output must be valid GitHub markdown only.
+
+Preferred section structure:
+1) About The Project
+2) Built With
+3) How It Works
+4) Key Features
+5) Project Structure
+6) Module Responsibilities
+7) Getting Started (Prerequisites + Installation)
+8) Usage
+9) Contributing
+10) License (only if detected)
 
 Persona: {persona_style(persona)}
-Structure context (for clarity only): {structure_context}
 Regeneration reason: {"doc_rot" if regenerate else "normal"}
 Code facts:
 {facts_block}
 
-README DRAFT:
+Fallback draft (use only if helpful):
 {base}
 """.strip()
         generated = await self.nim.chat(
