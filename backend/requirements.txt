@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+gunicorn
 pydantic
 python-multipart
 requests
@@ -7,6 +8,7 @@ httpx
 networkx
 PyJWT[crypto]
 cryptography
+redis
 python-dotenv
 pytest
 pytest-asyncio

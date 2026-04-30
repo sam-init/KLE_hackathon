@@ -44,6 +44,10 @@ class Settings:
     # Token for pushing README commits (fine-grained PAT: Contents R/W)
     github_docs_token: str = os.getenv("GITHUB_DOCS_TOKEN", "")
     token_encryption_secret: str = os.getenv("TOKEN_ENCRYPTION_SECRET", "")
+    redis_url: str = os.getenv("REDIS_URL", "")
+    result_cache_ttl_seconds: int = int(os.getenv("RESULT_CACHE_TTL_SECONDS", "1800"))
+    job_ttl_seconds: int = int(os.getenv("JOB_TTL_SECONDS", "7200"))
+    run_ttl_seconds: int = int(os.getenv("RUN_TTL_SECONDS", "7200"))
 
     keep_workspaces: bool = os.getenv("KEEP_WORKSPACES", "false").strip().lower() == "true"
 

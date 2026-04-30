@@ -5,6 +5,7 @@ import logging
 import re
 import time
 import uuid
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from backend.services.ingestion import (
     ingest_zip_bytes,
 )
 from backend.services.review_service import ReviewService
+from backend.services.state_store import StateStore
 from backend.services.token_crypto import decrypt_token, encrypt_token
 from backend.utils.settings import settings
 from docs.parser import parse_repository
@@ -67,9 +69,7 @@ app.add_middleware(
 rag_pipeline = RAGPipeline()
 review_service = ReviewService(rag_pipeline)
 doc_service = DocumentationService(rag_pipeline)
-
-RUN_CACHE: dict[str, dict[str, Any]] = {}
-JOBS: dict[str, dict[str, Any]] = {}  # job_id → {status, message, result}
+state_store = StateStore()
 
 
 @app.on_event("startup")
@@ -129,7 +129,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        cache_runs=len(RUN_CACHE),
+        cache_runs=0,
         rag_chunks=len(rag_pipeline.store.items),
     )
 
@@ -139,7 +139,7 @@ def health() -> HealthResponse:
 @app.get("/api/jobs/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str) -> JobStatus:
     """Poll this endpoint until status == 'done' or 'error'."""
-    job = JOBS.get(job_id)
+    job = state_store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return JobStatus(
@@ -176,23 +176,38 @@ def _extract_repo_name(repo_url: str) -> str | None:
     return m.group(1).removesuffix(".git")
 
 
+def _build_result_cache_key(mode: str, repo_url: str, persona: str) -> str:
+    normalized = repo_url.strip().lower()
+    digest = hashlib.sha256(f"{mode}|{normalized}|{persona}".encode("utf-8")).hexdigest()
+    return f"{mode}:{digest}"
+
+
 # ── Background job workers ────────────────────────────────────────────────────
 
-async def _job_review(job_id: str, persona: str, workspace: Path, repo_root: Path) -> None:
+async def _job_review(
+    job_id: str,
+    persona: str,
+    workspace: Path,
+    repo_root: Path,
+    result_cache_key: str | None = None,
+) -> None:
     try:
         logger.info("Job started | type=review job_id=%s persona=%s", job_id, persona)
         parsed_files = _parse_workspace(repo_root)
-        JOBS[job_id] = {"status": "processing", "message": "Review processing started", "result": None}
+        state_store.set_job(job_id, {"status": "processing", "message": "Review processing started", "result": None})
         logger.info("Job phase | type=review job_id=%s phase=model_processing", job_id)
         result = await review_service.review(parsed_files, persona)
         run_id = str(uuid.uuid4())
         response = ReviewResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
-        RUN_CACHE[run_id] = response.model_dump()
-        JOBS[job_id] = {"status": "done", "result": response.model_dump(), "message": "Review complete"}
+        response_payload = response.model_dump()
+        state_store.set_run(run_id, response_payload)
+        state_store.set_job(job_id, {"status": "done", "result": response_payload, "message": "Review complete"})
+        if result_cache_key:
+            state_store.set_result_cache(result_cache_key, response_payload)
         logger.info("Job completed | type=review job_id=%s run_id=%s", job_id, run_id)
     except Exception as exc:
         logger.exception("Job %s (review) failed: %s", job_id, exc)
-        JOBS[job_id] = {"status": "error", "message": str(exc), "result": None}
+        state_store.set_job(job_id, {"status": "error", "message": str(exc), "result": None})
     finally:
         if not settings.keep_workspaces:
             cleanup_workspace(workspace)
@@ -205,17 +220,21 @@ async def _job_docs(
     repo_root: Path,
     repo_full_name: str | None = None,
     encrypted_docs_token: str | None = None,
+    result_cache_key: str | None = None,
 ) -> None:
     try:
         logger.info("Job started | type=docs job_id=%s persona=%s repo=%s", job_id, persona, repo_full_name or "upload")
         parsed_files = _parse_workspace(repo_root)
-        JOBS[job_id] = {"status": "processing", "message": "Docs processing started", "result": None}
+        state_store.set_job(job_id, {"status": "processing", "message": "Docs processing started", "result": None})
         logger.info("Job phase | type=docs job_id=%s phase=model_processing", job_id)
         result = await doc_service.generate(parsed_files, persona)
         run_id = str(uuid.uuid4())
         response = DocsResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
-        RUN_CACHE[run_id] = response.model_dump()
-        JOBS[job_id] = {"status": "done", "result": response.model_dump(), "message": "Docs generated"}
+        response_payload = response.model_dump()
+        state_store.set_run(run_id, response_payload)
+        state_store.set_job(job_id, {"status": "done", "result": response_payload, "message": "Docs generated"})
+        if result_cache_key:
+            state_store.set_result_cache(result_cache_key, response_payload)
         logger.info("Job completed | type=docs job_id=%s run_id=%s", job_id, run_id)
 
         # Push README to GitHub using token priority:
@@ -238,7 +257,7 @@ async def _job_docs(
 
     except Exception as exc:
         logger.exception("Job %s (docs) failed: %s", job_id, exc)
-        JOBS[job_id] = {"status": "error", "message": str(exc), "result": None}
+        state_store.set_job(job_id, {"status": "error", "message": str(exc), "result": None})
     finally:
         if not settings.keep_workspaces:
             cleanup_workspace(workspace)
@@ -249,6 +268,10 @@ async def _job_docs(
 @app.post("/api/review/repo", response_model=JobStatus)
 def review_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatus:
     logger.info("API payload accepted | endpoint=/api/review/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
+    result_cache_key = _build_result_cache_key("review", payload.repo_url, payload.persona)
+    cached = state_store.get_result_cache(result_cache_key)
+    if cached:
+        return JobStatus(job_id="cached-review", status="done", message="Review served from cache", result=cached)
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)
@@ -256,8 +279,8 @@ def review_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobSta
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "processing", "message": "Review queued", "result": None}
-    background_tasks.add_task(_job_review, job_id, payload.persona, workspace, repo_root)
+    state_store.set_job(job_id, {"status": "processing", "message": "Review queued", "result": None})
+    background_tasks.add_task(_job_review, job_id, payload.persona, workspace, repo_root, result_cache_key)
     logger.info("Job queued | type=review source=repo job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Review queued — poll /api/jobs/{job_id}")
 
@@ -277,7 +300,7 @@ async def review_upload(
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "processing", "message": "Review queued", "result": None}
+    state_store.set_job(job_id, {"status": "processing", "message": "Review queued", "result": None})
     background_tasks.add_task(_job_review, job_id, persona, workspace, repo_root)
     logger.info("Job queued | type=review source=upload job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Review queued — poll /api/jobs/{job_id}")
@@ -288,6 +311,10 @@ async def review_upload(
 @app.post("/api/docs/repo", response_model=JobStatus)
 def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatus:
     logger.info("API payload accepted | endpoint=/api/docs/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
+    result_cache_key = _build_result_cache_key("docs", payload.repo_url, payload.persona)
+    cached = state_store.get_result_cache(result_cache_key)
+    if cached:
+        return JobStatus(job_id="cached-docs", status="done", message="Docs served from cache", result=cached)
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)
@@ -296,7 +323,7 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo_full_name = _extract_repo_name(payload.repo_url)
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "processing", "message": "Docs generation queued", "result": None}
+    state_store.set_job(job_id, {"status": "processing", "message": "Docs generation queued", "result": None})
     background_tasks.add_task(
         _job_docs,
         job_id,
@@ -305,6 +332,7 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
         repo_root,
         repo_full_name,
         payload.encrypted_docs_token,
+        result_cache_key,
     )
     logger.info("Job queued | type=docs source=repo job_id=%s repo=%s", job_id, repo_full_name or "unknown")
     msg = f"Docs queued — README will be pushed to {repo_full_name}" if repo_full_name else "Docs queued"
@@ -350,7 +378,7 @@ async def docs_upload(
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "processing", "message": "Docs generation queued", "result": None}
+    state_store.set_job(job_id, {"status": "processing", "message": "Docs generation queued", "result": None})
     background_tasks.add_task(_job_docs, job_id, persona, workspace, repo_root)
     logger.info("Job queued | type=docs source=upload job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Docs queued — poll /api/jobs/{job_id}")
@@ -381,13 +409,13 @@ async def _run_pr_review_background(
         logger.exception("PR review: review_service failed for %s#%d: %s", repo_name, pr_number, exc)
         return
 
-    RUN_CACHE[run_id] = {
+    state_store.set_run(run_id, {
         "type": "github_pr_review",
         "repo": repo_name,
         "pr_number": pr_number,
         "review": result,
         "comments": format_inline_comments(result["findings"]),
-    }
+    })
 
     posted = post_pr_review(
         repo_full_name=repo_name,
