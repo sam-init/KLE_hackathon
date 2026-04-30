@@ -1,14 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 
-import FaultyTerminal from "@/app/components/FaultyTerminal";
 import { DocsResults } from "@/components/DocsResults";
 import { ReviewResults } from "@/components/ReviewResults";
-import { GraphPanel } from "@/components/GraphPanel";
-import { GraphView } from "@/components/GraphView";
-import { TreeView } from "@/components/TreeView";
 import {
   docsFromRepo,
   docsFromZip,
@@ -18,23 +15,46 @@ import {
   verifyDocsTokenDirect,
 } from "@/lib/api";
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
-import { toGraphData } from "@/utils/graphAdapter";
+import { GraphView } from "@/src/components/GraphView";
+import { TreeView } from "@/src/components/TreeView";
+import {
+  GraphDatasetKey,
+  createVisualizationBundle,
+  getConnectedNodeIds,
+} from "@/src/utils/graphAdapter";
 
-const PERSONAS: Persona[] = ["Intern", "Student", "Frontend Developer", "Backend Developer"];
+const FaultyTerminal = dynamic(() => import("@/app/components/FaultyTerminal"), {
+  ssr: false,
+});
+
+const PERSONAS: Persona[] = [
+  "Intern",
+  "Student",
+  "Frontend Developer",
+  "Backend Developer",
+];
 const DEMO_REPO = "https://github.com/ShUbHaMHiReMaT/-GoGemba-";
 
 type ResultTab = "review" | "docs" | "graphs";
 type InputMode = "repo" | "zip";
-type GraphDisplayMode = "classic" | "graph" | "tree";
+type VisualizationMode = "split" | "graph" | "tree";
 
-/* ───── Loading skeleton ─────────────────────────────────── */
 function LoadingSkeleton() {
   return (
     <div className="card" style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 4,
+        }}
+      >
         <div className="spinner" />
-        <span style={{ color: "var(--ink-2)", fontSize: 14, fontWeight: 600 }}>
-          AI agents are processing your repository…
+        <span
+          style={{ color: "var(--ink-2)", fontSize: 14, fontWeight: 600 }}
+        >
+          AI agents are processing your repository...
         </span>
       </div>
       {[140, 90, 200, 110, 80].map((h, i) => (
@@ -44,13 +64,25 @@ function LoadingSkeleton() {
   );
 }
 
-/* ───── Empty placeholder ────────────────────────────────── */
 function EmptyState({ tab }: { tab: ResultTab }) {
   const map = {
-    review: { icon: "🔍", title: "Code Reviewer Ready", desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review." },
-    docs:   { icon: "📚", title: "Docs Generator Ready", desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs." },
-    graphs: { icon: "🕸️", title: "Graphs Ready", desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs." },
+    review: {
+      icon: "Review",
+      title: "Code Reviewer Ready",
+      desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review.",
+    },
+    docs: {
+      icon: "Docs",
+      title: "Docs Generator Ready",
+      desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs.",
+    },
+    graphs: {
+      icon: "Graph",
+      title: "Graphs Ready",
+      desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs.",
+    },
   };
+
   const { icon, title, desc } = map[tab];
   return (
     <div className="card empty-state">
@@ -61,7 +93,6 @@ function EmptyState({ tab }: { tab: ResultTab }) {
   );
 }
 
-/* ───── Dashboard ────────────────────────────────────────── */
 export default function DashboardPage() {
   const [persona, setPersona] = useState<Persona>("Student");
   const [repoUrl, setRepoUrl] = useState("");
@@ -69,31 +100,46 @@ export default function DashboardPage() {
   const [inputMode, setInputMode] = useState<InputMode>("repo");
 
   const [reviewData, setReviewData] = useState<ReviewResponse | null>(null);
-  const [docsData, setDocsData]     = useState<DocsResponse | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [success, setSuccess]       = useState<string | null>(null);
+  const [docsData, setDocsData] = useState<DocsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [docsPat, setDocsPat] = useState("");
   const [encryptedDocsToken, setEncryptedDocsToken] = useState<string | null>(null);
   const [rawDocsToken, setRawDocsToken] = useState<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [verifyingToken, setVerifyingToken] = useState(false);
 
-  // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
-  const [graphDisplayMode, setGraphDisplayMode] = useState<GraphDisplayMode>("graph");
-  const [selectedGraphPath, setSelectedGraphPath] = useState<string | null>(null);
-  const graphData = useMemo(() => toGraphData(docsData?.dependency_graph), [docsData]);
-  const selectedGraphNode = useMemo(
-    () => graphData.nodes.find((node) => node.filePath === selectedGraphPath) ?? null,
-    [graphData.nodes, selectedGraphPath]
+  const [graphDataset, setGraphDataset] =
+    useState<GraphDatasetKey>("dependency_graph");
+  const [visualizationMode, setVisualizationMode] =
+    useState<VisualizationMode>("split");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const visualization = useMemo(
+    () => (docsData ? createVisualizationBundle(docsData, graphDataset) : null),
+    [docsData, graphDataset],
   );
-  const graphNeighbors = useMemo(() => {
-    if (!selectedGraphNode) return [];
-    return graphData.links.filter(
-      (edge) => edge.source === selectedGraphNode.id || edge.target === selectedGraphNode.id
-    );
-  }, [graphData.links, selectedGraphNode]);
+
+  const selectedNode = useMemo(
+    () =>
+      visualization?.graph.nodes.find((node) => node.id === selectedNodeId) ??
+      null,
+    [selectedNodeId, visualization],
+  );
+
+  const connectedNodeIds = useMemo(
+    () =>
+      visualization
+        ? getConnectedNodeIds(visualization.graph, selectedNodeId)
+        : new Set<string>(),
+    [selectedNodeId, visualization],
+  );
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+  }, [graphDataset, docsData?.run_id]);
 
   async function run(mode: "repo" | "zip") {
     if (mode === "repo" && !repoUrl) {
@@ -104,42 +150,51 @@ export default function DashboardPage() {
       setError("Please select a ZIP file.");
       return;
     }
+
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
       if (resultTab === "review" || resultTab === "graphs") {
-        // "graphs" sub-tab shows docs graphs, trigger docs
-        const doRev = resultTab === "review";
-        if (doRev) {
-          const data = mode === "repo"
-            ? await reviewFromRepo(repoUrl, persona)
-            : await reviewFromZip(file!, persona);
+        const doReview = resultTab === "review";
+        if (doReview) {
+          const data =
+            mode === "repo"
+              ? await reviewFromRepo(repoUrl, persona)
+              : await reviewFromZip(file!, persona);
           setReviewData(data);
-          setSuccess(`Review complete — ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
+          setSuccess(
+            `Review complete - ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`,
+          );
         } else {
-          const data = mode === "repo"
+          const data =
+            mode === "repo"
+              ? await docsFromRepo(repoUrl, persona, {
+                  encryptedDocsToken: encryptedDocsToken ?? undefined,
+                  rawDocsToken: rawDocsToken ?? undefined,
+                })
+              : await docsFromZip(file!, persona);
+          setDocsData(data);
+          setSuccess("Graphs generated successfully.");
+        }
+      } else {
+        const data =
+          mode === "repo"
             ? await docsFromRepo(repoUrl, persona, {
                 encryptedDocsToken: encryptedDocsToken ?? undefined,
                 rawDocsToken: rawDocsToken ?? undefined,
               })
             : await docsFromZip(file!, persona);
-          setDocsData(data);
-          setSuccess("Graphs generated successfully.");
-        }
-      } else {
-        const data = mode === "repo"
-          ? await docsFromRepo(repoUrl, persona, {
-              encryptedDocsToken: encryptedDocsToken ?? undefined,
-              rawDocsToken: rawDocsToken ?? undefined,
-            })
-          : await docsFromZip(file!, persona);
         setDocsData(data);
         setSuccess("Documentation generated successfully.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed. Check the console for details.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Request failed. Check the console for details.",
+      );
     } finally {
       setLoading(false);
     }
@@ -160,6 +215,7 @@ export default function DashboardPage() {
     setError(null);
     setTokenStatus(null);
     setVerifyingToken(true);
+
     try {
       const result = await verifyDocsToken(repoUrl, docsPat.trim());
       if (!result.valid || !result.encrypted_token) {
@@ -168,22 +224,37 @@ export default function DashboardPage() {
         setTokenStatus(result.message || "Token verification failed.");
         return;
       }
+
       setEncryptedDocsToken(result.encrypted_token);
       setRawDocsToken(null);
       setTokenStatus(
-        `PAT verified for ${result.repo_full_name ?? "repo"}${result.default_branch ? ` (default branch: ${result.default_branch})` : ""}.`
+        `PAT verified for ${result.repo_full_name ?? "repo"}${
+          result.default_branch
+            ? ` (default branch: ${result.default_branch})`
+            : ""
+        }.`,
       );
       setDocsPat("");
     } catch (err) {
       setEncryptedDocsToken(null);
-      const msg = err instanceof Error ? err.message : "Token verification failed.";
+      const msg =
+        err instanceof Error ? err.message : "Token verification failed.";
       const lower = msg.toLowerCase();
-      if (lower.includes("http 404") || lower.includes("not found") || lower.includes("endpoint")) {
+
+      if (
+        lower.includes("http 404") ||
+        lower.includes("not found") ||
+        lower.includes("endpoint")
+      ) {
         const fallback = await verifyDocsTokenDirect(repoUrl, docsPat.trim());
         if (fallback.valid) {
           setRawDocsToken(docsPat.trim());
           setTokenStatus(
-            `PAT verified client-side for ${fallback.repo_full_name ?? "repo"}${fallback.default_branch ? ` (default branch: ${fallback.default_branch})` : ""}.`
+            `PAT verified client-side for ${fallback.repo_full_name ?? "repo"}${
+              fallback.default_branch
+                ? ` (default branch: ${fallback.default_branch})`
+                : ""
+            }.`,
           );
           setDocsPat("");
         } else {
@@ -225,57 +296,56 @@ export default function DashboardPage() {
       <div className="dashboard-scanlines" aria-hidden />
       <div className="dashboard-scanbeam" aria-hidden />
 
-      {/* ── Nav ── */}
       <nav className="nav">
         <Link href="/" className="nav-brand">
-  <img
-    src="/icon.svg"
-    alt="Cypher AI logo"
-    width={18}
-    height={18}
-    style={{ display: "block", marginRight: 8 }}
-  />
-  Cypher<span className="nav-brand-dim">AI</span>
-</Link>
+          <span style={{ marginRight: 8 }}>[]</span>
+          Cypher<span className="nav-brand-dim">AI</span>
+        </Link>
         <span style={{ color: "var(--border)", fontSize: 18 }}>/</span>
         <span style={{ color: "var(--ink-2)", fontSize: 14 }}>Dashboard</span>
         <span className="nav-sep" />
         {hasResults && (
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => { setReviewData(null); setDocsData(null); setSuccess(null); setError(null); }}
+            onClick={() => {
+              setReviewData(null);
+              setDocsData(null);
+              setSuccess(null);
+              setError(null);
+            }}
           >
-            ✕ Clear results
+            Clear results
           </button>
         )}
       </nav>
 
       <main className="container dashboard-main" style={{ paddingTop: 20 }}>
         <div className="dashboard-grid">
-
-          {/* ─── LEFT SIDEBAR ─── */}
           <aside className="dashboard-sidebar">
             <div className="card" style={{ display: "grid", gap: 20 }}>
-
-              {/* Mode toggle */}
               <div className="sidebar-section">
                 <div className="label">Action</div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {(["review", "docs", "graphs"] as ResultTab[]).map((t) => (
                     <button
                       key={t}
-                      className={`btn btn-sm ${resultTab === t ? "btn-primary" : "btn-secondary"}`}
+                      className={`btn btn-sm ${
+                        resultTab === t ? "btn-primary" : "btn-secondary"
+                      }`}
                       style={{ flex: 1, textTransform: "capitalize" }}
                       onClick={() => setResultTab(t)}
                       disabled={loading}
                     >
-                      {t === "review" ? "🔍 Review" : t === "docs" ? "📚 Docs" : "🕸️ Graphs"}
+                      {t === "review"
+                        ? "Review"
+                        : t === "docs"
+                          ? "Docs"
+                          : "Graphs"}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Persona */}
               <div className="sidebar-section">
                 <div className="label">Persona</div>
                 <div className="persona-grid">
@@ -292,12 +362,13 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Input mode */}
               <div className="sidebar-section">
                 <div className="label">Input Source</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button
-                    className={`btn btn-sm ${inputMode === "repo" ? "btn-primary" : "btn-secondary"}`}
+                    className={`btn btn-sm ${
+                      inputMode === "repo" ? "btn-primary" : "btn-secondary"
+                    }`}
                     style={{ flex: 1 }}
                     onClick={() => setInputMode("repo")}
                     disabled={loading}
@@ -305,7 +376,9 @@ export default function DashboardPage() {
                     GitHub URL
                   </button>
                   <button
-                    className={`btn btn-sm ${inputMode === "zip" ? "btn-primary" : "btn-secondary"}`}
+                    className={`btn btn-sm ${
+                      inputMode === "zip" ? "btn-primary" : "btn-secondary"
+                    }`}
                     style={{ flex: 1 }}
                     onClick={() => setInputMode("zip")}
                     disabled={loading}
@@ -317,7 +390,9 @@ export default function DashboardPage() {
 
               {inputMode === "repo" ? (
                 <div className="sidebar-section">
-                  <label htmlFor="repo-url" className="label">Repository URL</label>
+                  <label htmlFor="repo-url" className="label">
+                    Repository URL
+                  </label>
                   <input
                     id="repo-url"
                     className="input"
@@ -327,14 +402,17 @@ export default function DashboardPage() {
                     disabled={loading}
                     onKeyDown={(e) => e.key === "Enter" && run("repo")}
                   />
-                  {/* Demo fill */}
                   <button
                     className="btn btn-ghost btn-sm"
-                    style={{ marginTop: 6, width: "100%", justifyContent: "flex-start" }}
+                    style={{
+                      marginTop: 6,
+                      width: "100%",
+                      justifyContent: "flex-start",
+                    }}
                     onClick={() => setRepoUrl(DEMO_REPO)}
                     disabled={loading}
                   >
-                    ✨ Try Demo Repo
+                    Try Demo Repo
                   </button>
                   <button
                     id="run-repo-btn"
@@ -344,14 +422,27 @@ export default function DashboardPage() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                      <>
+                        <div
+                          className="spinner"
+                          style={{ borderTopColor: "#fff" }}
+                        />
+                        Processing...
+                      </>
                     ) : (
-                      "▶ Run with Repo URL"
+                      "Run with Repo URL"
                     )}
                   </button>
 
-                  <div className="card-inset" style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                    <label htmlFor="docs-pat" className="label" style={{ marginBottom: 0 }}>
+                  <div
+                    className="card-inset"
+                    style={{ marginTop: 10, display: "grid", gap: 8 }}
+                  >
+                    <label
+                      htmlFor="docs-pat"
+                      className="label"
+                      style={{ marginBottom: 0 }}
+                    >
                       GitHub PAT for README push (optional)
                     </label>
                     <input
@@ -369,10 +460,17 @@ export default function DashboardPage() {
                       onClick={handleVerifyDocsToken}
                       disabled={loading || verifyingToken}
                     >
-                      {verifyingToken ? "Verifying…" : "Verify + Encrypt PAT"}
+                      {verifyingToken ? "Verifying..." : "Verify + Encrypt PAT"}
                     </button>
                     {tokenStatus && (
-                      <div style={{ fontSize: 12, color: encryptedDocsToken ? "var(--success)" : "var(--danger)" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: encryptedDocsToken || rawDocsToken
+                            ? "var(--success)"
+                            : "var(--danger)",
+                        }}
+                      >
                         {tokenStatus}
                       </div>
                     )}
@@ -380,7 +478,9 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="sidebar-section">
-                  <label htmlFor="zip-upload" className="label">ZIP File</label>
+                  <label htmlFor="zip-upload" className="label">
+                    ZIP File
+                  </label>
                   <input
                     id="zip-upload"
                     className="input"
@@ -391,8 +491,14 @@ export default function DashboardPage() {
                     style={{ padding: "8px 12px" }}
                   />
                   {file && (
-                    <div style={{ fontSize: 12, color: "var(--success)", marginTop: 6 }}>
-                      ✓ {file.name} ({(file.size / 1024).toFixed(0)} KB)
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--success)",
+                        marginTop: 6,
+                      }}
+                    >
+                      {file.name} ({(file.size / 1024).toFixed(0)} KB)
                     </div>
                   )}
                   <button
@@ -403,43 +509,49 @@ export default function DashboardPage() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                      <>
+                        <div
+                          className="spinner"
+                          style={{ borderTopColor: "#fff" }}
+                        />
+                        Processing...
+                      </>
                     ) : (
-                      "▶ Run with ZIP"
+                      "Run with ZIP"
                     )}
                   </button>
                 </div>
               )}
 
-              {/* Status messages */}
               {error && (
-                <div className="alert alert-error sidebar-section">
-                  <span>⚠</span> {error}
-                </div>
+                <div className="alert alert-error sidebar-section">{error}</div>
               )}
               {success && (
                 <div className="alert alert-success sidebar-section">
-                  <span>✓</span> {success}
+                  {success}
                 </div>
               )}
 
-              {/* Info blurb */}
-              <div className="card-inset" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.6 }}>
-                <strong style={{ color: "var(--ink)" }}>Tip:</strong> Select a persona to adapt
-                the output tone. Use "Try Demo Repo" to auto-fill a sample repository.
+              <div
+                className="card-inset"
+                style={{
+                  fontSize: 12,
+                  color: "var(--ink-2)",
+                  lineHeight: 1.6,
+                }}
+              >
+                <strong style={{ color: "var(--ink)" }}>Tip:</strong> Select a
+                persona to adapt the output tone. Use "Try Demo Repo" to
+                auto-fill a sample repository.
               </div>
             </div>
           </aside>
 
-          {/* ─── RIGHT RESULTS PANEL ─── */}
           <section className="dashboard-results">
-            {/* Loading */}
             {loading && <LoadingSkeleton />}
 
-            {/* Results */}
             {!loading && (
               <>
-                {/* Tabs — show only when we have data */}
                 {hasResults && (
                   <div className="tabs">
                     {reviewData !== null && (
@@ -448,8 +560,10 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "review" ? "active" : ""}`}
                         onClick={() => setResultTab("review")}
                       >
-                        🔍 Code Review
-                        <span className="tab-count">{reviewData.findings.length}</span>
+                        Code Review
+                        <span className="tab-count">
+                          {reviewData.findings.length}
+                        </span>
                       </button>
                     )}
                     {docsData !== null && (
@@ -458,7 +572,7 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "docs" ? "active" : ""}`}
                         onClick={() => setResultTab("docs")}
                       >
-                        📚 Documentation
+                        Documentation
                       </button>
                     )}
                     {docsData !== null && (
@@ -467,99 +581,200 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "graphs" ? "active" : ""}`}
                         onClick={() => setResultTab("graphs")}
                       >
-                        🕸️ Graphs
+                        Graphs
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* Review tab */}
-                {resultTab === "review" && (
-                  reviewData ? <ReviewResults data={reviewData} /> : <EmptyState tab="review" />
-                )}
+                {resultTab === "review" &&
+                  (reviewData ? (
+                    <ReviewResults data={reviewData} />
+                  ) : (
+                    <EmptyState tab="review" />
+                  ))}
 
-                {/* Docs tab */}
-                {resultTab === "docs" && (
-                  docsData ? <DocsResults data={docsData} /> : <EmptyState tab="docs" />
-                )}
+                {resultTab === "docs" &&
+                  (docsData ? (
+                    <DocsResults data={docsData} />
+                  ) : (
+                    <EmptyState tab="docs" />
+                  ))}
 
-                {/* Graphs tab */}
-                {resultTab === "graphs" && (
-                  docsData ? (
-                    <div className="grid">
-                      <div className="graph-toggle">
-                        {(["graph", "tree", "classic"] as GraphDisplayMode[]).map((mode) => (
-                          <button
-                            key={mode}
-                            className={`btn btn-sm ${graphDisplayMode === mode ? "btn-primary" : "btn-secondary"}`}
-                            onClick={() => setGraphDisplayMode(mode)}
-                            style={{ textTransform: "capitalize" }}
-                          >
-                            {mode === "graph" ? "Graph View" : mode === "tree" ? "Tree View" : "Classic Panels"}
-                          </button>
-                        ))}
+                {resultTab === "graphs" &&
+                  (docsData ? (
+                    <div className="grid" style={{ gap: 16 }}>
+                      <div className="viz-toolbar card">
+                        <div className="viz-toolbar-row">
+                          {([
+                            ["dependency_graph", "Dependency"],
+                            ["execution_flowchart", "Execution"],
+                            ["knowledge_graph", "Knowledge"],
+                          ] as Array<[GraphDatasetKey, string]>).map(
+                            ([key, label]) => (
+                              <button
+                                key={key}
+                                className={`btn btn-sm ${
+                                  graphDataset === key
+                                    ? "btn-primary"
+                                    : "btn-secondary"
+                                }`}
+                                onClick={() => setGraphDataset(key)}
+                              >
+                                {label}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <div className="viz-toolbar-row">
+                          {([
+                            ["split", "Split View"],
+                            ["graph", "Graph View"],
+                            ["tree", "Tree View"],
+                          ] as Array<[VisualizationMode, string]>).map(
+                            ([mode, label]) => (
+                              <button
+                                key={mode}
+                                className={`btn btn-sm ${
+                                  visualizationMode === mode
+                                    ? "btn-primary"
+                                    : "btn-secondary"
+                                }`}
+                                onClick={() => setVisualizationMode(mode)}
+                              >
+                                {label}
+                              </button>
+                            ),
+                          )}
+                        </div>
                       </div>
 
-                      {graphDisplayMode === "graph" && (
-                        <div className="viz-layout">
-                          <div className="viz-pane">
-                            <TreeView
-                              graph={docsData.dependency_graph}
-                              selectedPath={selectedGraphPath}
-                              onNodeSelect={setSelectedGraphPath}
-                            />
-                          </div>
-                          <div className="viz-pane viz-pane-center">
-                            <GraphView
-                              graph={docsData.dependency_graph}
-                              selectedPath={selectedGraphPath}
-                              onNodeSelect={setSelectedGraphPath}
-                            />
-                          </div>
-                          <aside className="card viz-details">
-                            <h3 style={{ marginTop: 0, fontSize: 15 }}>Details</h3>
-                            {!selectedGraphNode ? (
-                              <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 13 }}>
-                                Select a file from Tree View or Graph View to inspect its dependency links.
+                      <div className="viz-stats-grid">
+                        <div className="viz-stat-card">
+                          <span>Files mapped</span>
+                          <strong>{visualization?.stats.fileCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Folders</span>
+                          <strong>{visualization?.stats.folderCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Edges</span>
+                          <strong>{visualization?.stats.edgeCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Hotspot</span>
+                          <strong>
+                            {selectedNode?.label ??
+                              visualization?.stats.densestNodeId
+                                ?.split("/")
+                                .pop() ??
+                              "n/a"}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className={`viz-shell mode-${visualizationMode}`}>
+                        {visualization && visualizationMode !== "graph" && (
+                          <TreeView
+                            tree={visualization.tree}
+                            selectedNodeId={selectedNodeId}
+                            onNodeSelect={setSelectedNodeId}
+                          />
+                        )}
+
+                        {visualization && visualizationMode !== "tree" && (
+                          <GraphView
+                            title={
+                              graphDataset === "dependency_graph"
+                                ? "Dependency Graph"
+                                : graphDataset === "execution_flowchart"
+                                  ? "Execution Flow"
+                                  : "Knowledge Graph"
+                            }
+                            graph={visualization.graph}
+                            selectedNodeId={selectedNodeId}
+                            onNodeSelect={setSelectedNodeId}
+                          />
+                        )}
+
+                        <aside className="viz-panel detail-panel">
+                          <div className="viz-panel-header">
+                            <div>
+                              <h3>Inspector</h3>
+                              <p>
+                                Selection-aware context for the active graph.
                               </p>
-                            ) : (
-                              <div className="grid" style={{ gap: 10 }}>
-                                <div>
-                                  <div className="label" style={{ marginBottom: 2 }}>File</div>
-                                  <code>{selectedGraphNode.filePath}</code>
+                            </div>
+                          </div>
+
+                          {selectedNode ? (
+                            <div className="detail-stack">
+                              <div className="detail-card">
+                                <span className="detail-kicker">
+                                  Selected file
+                                </span>
+                                <strong>{selectedNode.label}</strong>
+                                <code>{selectedNode.path}</code>
+                              </div>
+                              <div className="detail-grid">
+                                <div className="detail-metric">
+                                  <span>Group</span>
+                                  <strong>{selectedNode.group}</strong>
                                 </div>
-                                <div>
-                                  <div className="label" style={{ marginBottom: 2 }}>Node Type</div>
-                                  <div style={{ fontSize: 13 }}>{selectedGraphNode.kind}</div>
+                                <div className="detail-metric">
+                                  <span>Inbound</span>
+                                  <strong>{selectedNode.inbound}</strong>
                                 </div>
-                                <div>
-                                  <div className="label" style={{ marginBottom: 2 }}>Connected Links</div>
-                                  <div style={{ fontSize: 13 }}>{graphNeighbors.length}</div>
+                                <div className="detail-metric">
+                                  <span>Outbound</span>
+                                  <strong>{selectedNode.outbound}</strong>
+                                </div>
+                                <div className="detail-metric">
+                                  <span>Neighbors</span>
+                                  <strong>
+                                    {Math.max(connectedNodeIds.size - 1, 0)}
+                                  </strong>
                                 </div>
                               </div>
-                            )}
-                          </aside>
-                        </div>
-                      )}
+                            </div>
+                          ) : (
+                            <div className="detail-empty">
+                              Select a file in the graph or tree to inspect its
+                              dependency neighborhood.
+                            </div>
+                          )}
 
-                      {graphDisplayMode === "tree" && (
-                        <TreeView
-                          graph={docsData.dependency_graph}
-                          selectedPath={selectedGraphPath}
-                          onNodeSelect={setSelectedGraphPath}
-                        />
-                      )}
-
-                      {graphDisplayMode === "classic" && (
-                        <div className="grid">
-                          <GraphPanel title="Dependency Graph" graph={docsData.dependency_graph} />
-                          <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
-                          <GraphPanel title="Knowledge Graph" graph={docsData.knowledge_graph} />
-                        </div>
-                      )}
+                          <div className="detail-stack">
+                            <div className="detail-card">
+                              <span className="detail-kicker">Run metadata</span>
+                              <strong>{docsData.persona}</strong>
+                              <span>
+                                {docsData.doc_rot_detected
+                                  ? "README was regenerated after doc-rot detection."
+                                  : "Documentation generated from the current backend pipeline."}
+                              </span>
+                            </div>
+                            <div className="detail-card">
+                              <span className="detail-kicker">
+                                Available outputs
+                              </span>
+                              <span>
+                                {Object.keys(docsData.modular_docs ?? {}).length}{" "}
+                                modular docs
+                              </span>
+                              <span>
+                                {Object.keys(docsData.docstrings ?? {}).length}{" "}
+                                docstring files
+                              </span>
+                            </div>
+                          </div>
+                        </aside>
+                      </div>
                     </div>
-                  ) : <EmptyState tab="graphs" />
-                )}
+                  ) : (
+                    <EmptyState tab="graphs" />
+                  ))}
               </>
             )}
           </section>
@@ -568,4 +783,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

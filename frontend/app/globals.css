@@ -1091,3 +1091,321 @@ details .detail-body {
     position: static;
   }
 }
+
+/* Visualization workspace */
+.viz-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.viz-toolbar-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.viz-stats-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.viz-stat-card {
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(88, 166, 255, 0.14);
+  background:
+    radial-gradient(circle at top left, rgba(88, 166, 255, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(22, 27, 34, 0.98), rgba(13, 17, 23, 0.98));
+  box-shadow: var(--shadow-sm);
+}
+
+.viz-stat-card span {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+
+.viz-stat-card strong {
+  font-size: 1.5rem;
+  color: var(--ink);
+}
+
+.viz-shell {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(260px, 0.92fr) minmax(0, 1.9fr) minmax(240px, 0.88fr);
+  align-items: stretch;
+}
+
+.viz-shell.mode-graph {
+  grid-template-columns: minmax(0, 2.3fr) minmax(240px, 0.9fr);
+}
+
+.viz-shell.mode-tree {
+  grid-template-columns: minmax(280px, 1.2fr) minmax(240px, 0.9fr);
+}
+
+.viz-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 620px;
+  border-radius: 16px;
+  border: 1px solid rgba(48, 54, 61, 0.95);
+  background:
+    linear-gradient(180deg, rgba(22, 27, 34, 0.98), rgba(13, 17, 23, 0.98));
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.viz-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.9);
+  background:
+    linear-gradient(90deg, rgba(88, 166, 255, 0.08), transparent 35%);
+}
+
+.viz-panel-header h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.viz-panel-header p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.viz-badge-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.viz-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid rgba(88, 166, 255, 0.22);
+  background: rgba(88, 166, 255, 0.08);
+  color: #9ecbff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.graph-canvas {
+  height: 100%;
+  min-height: 540px;
+}
+
+.graph-panel .react-flow__renderer,
+.graph-panel .react-flow__container,
+.graph-panel .react-flow {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 30%),
+    linear-gradient(180deg, #08101d, #0f172a 68%, #0b1220);
+}
+
+.flow-node-card {
+  display: grid;
+  gap: 6px;
+}
+
+.flow-node-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-node-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.flow-node-kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.flow-node-card strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.flow-node-card span:last-child {
+  font-size: 11px;
+  color: #94a3b8;
+  word-break: break-word;
+}
+
+.tree-scroll {
+  padding: 12px 0;
+  overflow: auto;
+}
+
+.tree-node-wrap {
+  width: 100%;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding-right: 12px;
+}
+
+.tree-node.selected {
+  background: linear-gradient(90deg, rgba(88, 166, 255, 0.14), transparent);
+}
+
+.tree-node-button,
+.tree-meta {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.tree-node-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.tree-node-button.file:hover,
+.tree-node-button.folder:hover,
+.tree-meta:hover {
+  color: #9ecbff;
+}
+
+.tree-caret {
+  width: 10px;
+  color: var(--ink-2);
+  transition: transform 0.15s ease;
+}
+
+.tree-caret.open {
+  transform: rotate(90deg);
+}
+
+.tree-icon {
+  color: #60a5fa;
+  font-size: 11px;
+}
+
+.tree-label {
+  font-size: 13px;
+}
+
+.tree-meta {
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.detail-panel {
+  padding-bottom: 16px;
+}
+
+.detail-stack {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.detail-card,
+.detail-empty {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(48, 54, 61, 0.95);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.detail-card strong {
+  font-size: 15px;
+}
+
+.detail-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.detail-metric {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(8, 15, 28, 0.82);
+  border: 1px solid rgba(51, 65, 85, 0.75);
+}
+
+.detail-metric span {
+  color: var(--ink-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.detail-empty {
+  margin: 16px;
+  color: var(--ink-2);
+  min-height: 120px;
+  align-content: center;
+}
+
+@media (max-width: 1180px) {
+  .viz-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .viz-shell,
+  .viz-shell.mode-graph,
+  .viz-shell.mode-tree {
+    grid-template-columns: 1fr;
+  }
+
+  .viz-panel {
+    min-height: 420px;
+  }
+}
+
+@media (max-width: 680px) {
+  .viz-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@import "@xyflow/react/dist/style.css";

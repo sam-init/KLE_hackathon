@@ -1,18 +1,28 @@
-import { DocsResponse, Persona, ReviewResponse, TokenVerifyResponse } from "./types";
+import {
+  DocsResponse,
+  Persona,
+  ReviewResponse,
+  TokenVerifyResponse,
+} from "./types";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
+function getApiBase(): string {
+  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/$/, "") ?? "";
+}
 
 function normalizeErrorMessage(raw: string): string {
   const msg = raw.trim();
   const lower = msg.toLowerCase();
 
-  if (lower.includes("http 429") || lower.includes("rate limit") || lower.includes("quota")) {
+  if (
+    lower.includes("http 429") ||
+    lower.includes("rate limit") ||
+    lower.includes("quota")
+  ) {
     return "NVIDIA model limit reached on Render. Please wait 1-2 minutes and retry, or use a smaller/faster model in backend env vars.";
   }
 
   if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
-    return "Unable to reach backend API. Verify Render backend is awake and NEXT_PUBLIC_API_BASE_URL points to the correct .onrender.com URL.";
+    return "Unable to reach the backend API. Verify your Render backend is awake and NEXT_PUBLIC_API_BASE_URL points to the correct service URL.";
   }
 
   if (lower.includes("timed out") || lower.includes("timeout")) {
@@ -55,7 +65,7 @@ interface JobStatus {
 
 async function submitAndPoll<T>(
   submitFn: () => Promise<Response>,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<T> {
   const submitRes = await submitFn();
   const job: JobStatus = await handleResponse<JobStatus>(submitRes);
@@ -67,12 +77,12 @@ async function submitAndPoll<T>(
     throw new Error(normalizeErrorMessage(job.message || "Job failed"));
   }
 
-  const POLL_INTERVAL_MS = 3000;
+  const pollIntervalMs = 3000;
   const jobId = job.job_id;
 
   while (true) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const pollRes = await fetch(`${API_BASE}/api/jobs/${jobId}`);
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    const pollRes = await fetch(`${getApiBase()}/api/jobs/${jobId}`);
     const status: JobStatus = await handleResponse<JobStatus>(pollRes);
 
     if (onProgress) onProgress(status.message || status.status);
@@ -89,31 +99,31 @@ async function submitAndPoll<T>(
 export async function reviewFromRepo(
   repoUrl: string,
   persona: Persona,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ReviewResponse> {
   return submitAndPoll<ReviewResponse>(
     () =>
-      fetch(`${API_BASE}/api/review/repo`, {
+      fetch(`${getApiBase()}/api/review/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl, persona }),
       }),
-    onProgress
+    onProgress,
   );
 }
 
 export async function reviewFromZip(
   file: File,
   persona: Persona,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ReviewResponse> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("persona", persona);
 
   return submitAndPoll<ReviewResponse>(
-    () => fetch(`${API_BASE}/api/review/upload`, { method: "POST", body: fd }),
-    onProgress
+    () => fetch(`${getApiBase()}/api/review/upload`, { method: "POST", body: fd }),
+    onProgress,
   );
 }
 
@@ -123,9 +133,12 @@ export async function docsFromRepo(
   tokenOrProgress?:
     | { encryptedDocsToken?: string; rawDocsToken?: string }
     | ((msg: string) => void),
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<DocsResponse> {
-  const tokenBundle = typeof tokenOrProgress === "object" && tokenOrProgress !== null ? tokenOrProgress : undefined;
+  const tokenBundle =
+    typeof tokenOrProgress === "object" && tokenOrProgress !== null
+      ? tokenOrProgress
+      : undefined;
   const progressCb =
     typeof tokenOrProgress === "function" ? tokenOrProgress : onProgress;
 
@@ -138,25 +151,30 @@ export async function docsFromRepo(
     repo_url: repoUrl,
     persona,
   };
-  if (tokenBundle?.encryptedDocsToken) payload.encrypted_docs_token = tokenBundle.encryptedDocsToken;
-  if (tokenBundle?.rawDocsToken) payload.docs_token = tokenBundle.rawDocsToken;
+
+  if (tokenBundle?.encryptedDocsToken) {
+    payload.encrypted_docs_token = tokenBundle.encryptedDocsToken;
+  }
+  if (tokenBundle?.rawDocsToken) {
+    payload.docs_token = tokenBundle.rawDocsToken;
+  }
 
   return submitAndPoll<DocsResponse>(
     () =>
-      fetch(`${API_BASE}/api/docs/repo`, {
+      fetch(`${getApiBase()}/api/docs/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }),
-    progressCb
+    progressCb,
   );
 }
 
 export async function verifyDocsToken(
   repoUrl: string,
-  token: string
+  token: string,
 ): Promise<TokenVerifyResponse> {
-  const res = await fetch(`${API_BASE}/api/github/verify-docs-token`, {
+  const res = await fetch(`${getApiBase()}/api/github/verify-docs-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ repo_url: repoUrl, token }),
@@ -164,11 +182,15 @@ export async function verifyDocsToken(
   return handleResponse<TokenVerifyResponse>(res);
 }
 
-export async function verifyDocsTokenDirect(repoUrl: string, token: string): Promise<TokenVerifyResponse> {
+export async function verifyDocsTokenDirect(
+  repoUrl: string,
+  token: string,
+): Promise<TokenVerifyResponse> {
   const match = repoUrl.match(/github\.com[:/]([\w.-]+\/[\w.-]+)/i);
   if (!match) {
     return { valid: false, message: "Invalid GitHub repository URL." };
   }
+
   const repoFullName = match[1].replace(/\.git$/, "");
   const res = await fetch(`https://api.github.com/repos/${repoFullName}`, {
     headers: {
@@ -177,6 +199,7 @@ export async function verifyDocsTokenDirect(repoUrl: string, token: string): Pro
       "X-GitHub-Api-Version": "2022-11-28",
     },
   });
+
   if (!res.ok) {
     return {
       valid: false,
@@ -184,6 +207,7 @@ export async function verifyDocsTokenDirect(repoUrl: string, token: string): Pro
       message: `Token validation failed (HTTP ${res.status}).`,
     };
   }
+
   const data = await res.json();
   const canPush = Boolean(data?.permissions?.push);
   if (!canPush) {
@@ -194,6 +218,7 @@ export async function verifyDocsTokenDirect(repoUrl: string, token: string): Pro
       message: "Token lacks push permission. Grant Contents: Read and write.",
     };
   }
+
   return {
     valid: true,
     repo_full_name: repoFullName,
@@ -206,14 +231,14 @@ export async function verifyDocsTokenDirect(repoUrl: string, token: string): Pro
 export async function docsFromZip(
   file: File,
   persona: Persona,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<DocsResponse> {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("persona", persona);
 
   return submitAndPoll<DocsResponse>(
-    () => fetch(`${API_BASE}/api/docs/upload`, { method: "POST", body: fd }),
-    onProgress
+    () => fetch(`${getApiBase()}/api/docs/upload`, { method: "POST", body: fd }),
+    onProgress,
   );
 }

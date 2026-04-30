@@ -4,31 +4,32 @@ __pycache__/
 *.egg-info/
 .venv/
 .pytest_cache/
-tests/
-pytest.ini
+backend/.cache/
 
-# Node
+# Node / frontend build artifacts
 node_modules/
 frontend/node_modules/
 .next/
+frontend/.next/
 out/
 dist/
 build/
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
 
-# Env
+# Environment files
 .env
-.env.local
+.env.*
+!.env.example
+!frontend/.env.example
 
 # Upload/cache
 data/workspaces/*
 !data/workspaces/.gitkeep
-backend/.cache/
 
-# OS
+# Test and coverage artifacts
+coverage/
+
+# OS / editor
 .DS_Store
-
-node_modules/
-frontend/node_modules/
-.env
-dist/
-build/
+Thumbs.db

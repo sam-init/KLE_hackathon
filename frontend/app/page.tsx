@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import FaultyTerminal from "./components/FaultyTerminal";
+
+const FaultyTerminal = dynamic(() => import("./components/FaultyTerminal"), {
+  ssr: false,
+});
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -96,7 +100,7 @@ export default function HomePage() {
           scrollTrigger: { trigger: stepsRef.current, start: "top 84%" }
         });
     }
-    return () => ScrollTrigger.getAll().forEach(t => t.kill());
+    return () => ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
   }, []);
 
   return (
