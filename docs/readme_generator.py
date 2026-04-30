@@ -367,6 +367,49 @@ def _render_getting_started(understanding: dict[str, Any]) -> str:
     return "\n".join(steps)
 
 
+def _render_built_with(understanding: dict[str, Any]) -> str:
+    imports_joined = " ".join(
+        str(imp).lower()
+        for item in understanding["files"]
+        for imp in item.get("imports", [])
+    )
+    labels: list[str] = []
+    if "fastapi" in imports_joined:
+        labels.append("- FastAPI")
+    if "flask" in imports_joined:
+        labels.append("- Flask")
+    if "django" in imports_joined:
+        labels.append("- Django")
+    if "react" in imports_joined:
+        labels.append("- React")
+    if "next" in imports_joined:
+        labels.append("- Next.js")
+    if "pydantic" in imports_joined:
+        labels.append("- Pydantic")
+    langs = understanding["languages"]
+    if "py" in langs:
+        labels.append("- Python")
+    if "js" in langs:
+        labels.append("- JavaScript")
+    if "ts" in langs or "tsx" in langs:
+        labels.append("- TypeScript")
+    if "v" in langs or "sv" in langs:
+        labels.append("- Verilog/SystemVerilog")
+    deduped = list(dict.fromkeys(labels))
+    return "\n".join(deduped[:10])
+
+
+def _render_installation(understanding: dict[str, Any]) -> str:
+    langs = understanding["languages"]
+    lines: list[str] = ["```bash", "git clone <repo-url>", "cd <repo-folder>"]
+    if "py" in langs:
+        lines.append("pip install -r requirements.txt  # if present")
+    if "js" in langs or "ts" in langs or "tsx" in langs:
+        lines.append("npm install  # if package.json is present")
+    lines.append("```")
+    return "\n".join(lines)
+
+
 def _render_license(understanding: dict[str, Any]) -> str:
     for item in understanding["files"]:
         base = PurePosixPath(item["path"]).name.lower()
@@ -391,7 +434,11 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
 
     overview = _render_overview(understanding)
     if overview:
-        sections.append("## Overview\n" + overview)
+        sections.append("## About The Project\n" + overview)
+
+    built_with = _render_built_with(understanding)
+    if built_with:
+        sections.append("### Built With\n" + built_with)
 
     how_it_works = _render_how_it_works(understanding)
     if how_it_works:
@@ -415,7 +462,11 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
 
     getting_started = _render_getting_started(understanding)
     if getting_started:
-        sections.append("## Getting Started\n" + getting_started)
+        sections.append("## Getting Started\n### Prerequisites\n" + getting_started)
+
+    installation = _render_installation(understanding)
+    if installation:
+        sections.append("### Installation\n" + installation)
 
     if understanding["entrypoints"]:
         usage = _usage_for_entry(understanding["entrypoints"][0])
