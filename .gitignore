@@ -33,3 +33,37 @@ coverage/
 # OS / editor
 .DS_Store
 Thumbs.db
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+tests/
+pytest.ini
+
+# Node
+node_modules/
+frontend/node_modules/
+.next/
+out/
+dist/
+build/
+
+# Env
+.env
+.env.local
+
+# Upload/cache
+data/workspaces/*
+!data/workspaces/.gitkeep
+backend/.cache/
+
+# OS
+.DS_Store
+
+node_modules/
+frontend/node_modules/
+.env
+dist/
+build/
