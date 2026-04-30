@@ -87,10 +87,34 @@ class DocumentationService:
         regenerate: bool = False,
         repo_name: str = "",
     ) -> str:
-        _ = persona
-        _ = structure_context
-        _ = regenerate
-        return create_readme_from_understanding(parsed_files, repo_name=repo_name)
+        base = create_readme_from_understanding(parsed_files, repo_name=repo_name)
+        if not self.nim.enabled:
+            return base
+
+        # Use LLM only as a writing layer over grounded facts to improve clarity.
+        prompt = f"""
+Rewrite this README to improve clarity and project understanding.
+Rules:
+- Stay strictly grounded in provided README content.
+- Keep all file paths repo-relative.
+- Do not add frameworks/tools not present.
+- Avoid generic filler text.
+- Keep sections concise and developer-focused.
+
+Persona: {persona_style(persona)}
+Structure context (for clarity only): {structure_context}
+Regeneration reason: {"doc_rot" if regenerate else "normal"}
+
+README DRAFT:
+{base}
+""".strip()
+        generated = await self.nim.chat(
+            model=settings.nim_model_qwen_docs,
+            system_prompt="You are a senior engineer editing README text for accuracy and clarity. Never hallucinate.",
+            user_prompt=prompt,
+            temperature=0.1,
+        )
+        return generated or base
 
     def _build_modular_docs(self, parsed_files: list[dict[str, Any]], persona: str) -> dict[str, str]:
         modules: dict[str, str] = {}

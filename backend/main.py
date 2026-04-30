@@ -358,13 +358,9 @@ async def review_upload(
 @app.post("/api/docs/repo", response_model=JobStatus)
 def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatus:
     logger.info("API payload accepted | endpoint=/api/docs/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
-    result_cache_key = _build_result_cache_key("docs", payload.repo_url, payload.persona)
-    cached = state_store.get_result_cache(result_cache_key)
     repo_full_name = _extract_repo_name(payload.repo_url)
-    if cached:
-        # Cache hit should still preserve side effect for README sync.
-        _push_readme_if_available(repo_full_name, str(cached.get("readme", "")) or None, payload.encrypted_docs_token)
-        return JobStatus(job_id="cached-docs", status="done", message="Docs served from cache", result=cached)
+    # Always regenerate docs for repo runs so README quality updates are reflected immediately.
+    result_cache_key = None
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)

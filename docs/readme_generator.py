@@ -97,6 +97,25 @@ def _build_module_graph(parsed_files: list[dict[str, Any]]) -> dict[str, set[str
     return edges
 
 
+def _extract_capabilities(parsed_files: list[dict[str, Any]]) -> list[str]:
+    capabilities: list[str] = []
+    joined_content = "\n".join(str(item.get("content", ""))[:4000] for item in parsed_files[:20]).lower()
+    paths = " ".join(item["path"].lower() for item in parsed_files)
+    if "@app.route" in joined_content or "flask" in joined_content or "fastapi" in joined_content:
+        capabilities.append("exposes web/API endpoints")
+    if "/api/" in paths or "controller" in paths or "route" in paths:
+        capabilities.append("handles request routing and response orchestration")
+    if "validate" in joined_content or "validator" in paths:
+        capabilities.append("validates and sanitizes input data")
+    if "mapper" in paths or "intent" in paths:
+        capabilities.append("maps domain intents or rules into executable actions")
+    if "recon" in paths or "passive" in paths or "google" in paths:
+        capabilities.append("runs reconnaissance/data-collection style workflows")
+    if ".js" in paths or "static/" in paths or "frontend/" in paths:
+        capabilities.append("includes a browser-facing UI layer")
+    return list(dict.fromkeys(capabilities))
+
+
 def _entrypoints(parsed_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ranked: list[tuple[int, dict[str, Any]]] = []
     for item in parsed_files:
@@ -166,14 +185,18 @@ def _overview_narrative(understanding: dict[str, Any]) -> str:
 
     steps = understanding["flow_steps"]
     flow_hint = " -> ".join(step.replace("`", "") for step in steps[:4]) if steps else ""
+    capabilities = understanding.get("capabilities", [])
+    capability_text = ""
+    if capabilities:
+        capability_text = " Key behavior includes: " + "; ".join(capabilities[:4]) + "."
     if entry and flow_hint:
         return (
             f"This project executes primarily through `{entry}` and coordinates the workflow across {module_part}. "
-            f"At runtime, the main flow is: {flow_hint}."
+            f"At runtime, the main flow is: {flow_hint}.{capability_text}"
         )
     if entry:
-        return f"This project executes primarily through `{entry}` and coordinates logic across {module_part}."
-    return f"This codebase centers on {module_part}, with behavior inferred from imports and symbol relationships."
+        return f"This project executes primarily through `{entry}` and coordinates logic across {module_part}.{capability_text}"
+    return f"This codebase centers on {module_part}, with behavior inferred from imports and symbol relationships.{capability_text}"
 
 
 def _group_paths(paths: list[str]) -> dict[str, list[str]]:
@@ -232,6 +255,7 @@ def analyze_project(parsed_files: list[dict[str, Any]]) -> dict[str, Any]:
         "languages": languages,
         "project_types": _detect_project_types(files),
         "purpose": _infer_purpose(files),
+        "capabilities": _extract_capabilities(files),
         "groups": groups,
         "graph": graph,
         "entrypoints": entry,
