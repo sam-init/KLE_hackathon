@@ -50,3 +50,11 @@ export type DocsResponse = {
   doc_rot_detected: boolean;
   metadata: Record<string, unknown>;
 };
+
+export type TokenVerifyResponse = {
+  valid: boolean;
+  repo_full_name?: string | null;
+  default_branch?: string | null;
+  encrypted_token?: string | null;
+  message: string;
+};

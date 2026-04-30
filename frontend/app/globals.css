@@ -980,3 +980,114 @@ details .detail-body {
 .nav-sep {
   flex: 1;
 }
+
+/* ─── Advanced visualizations ──────────────────────────────── */
+.graph-toggle {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.graph-view-card,
+.tree-view-card {
+  padding: 16px;
+}
+
+.graph-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.graph-view-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.graph-view-header span {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.graph-canvas {
+  height: min(68vh, 680px);
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #0d1117;
+}
+
+.tree-scroll {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  max-height: min(68vh, 680px);
+  overflow: auto;
+  padding: 8px 0;
+}
+
+.tree-row {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  font-size: 13px;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.tree-row:hover {
+  background: rgba(88, 166, 255, 0.08);
+}
+.tree-row.active {
+  background: rgba(88, 166, 255, 0.18);
+}
+
+.tree-caret {
+  width: 12px;
+  color: var(--ink-2);
+  flex: 0 0 12px;
+}
+.tree-icon {
+  width: 16px;
+  flex: 0 0 16px;
+}
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viz-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(520px, 2fr) minmax(220px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.viz-pane {
+  min-width: 0;
+}
+
+.viz-pane-center .graph-canvas {
+  height: min(72vh, 760px);
+}
+
+.viz-details {
+  position: sticky;
+  top: 16px;
+}
+
+@media (max-width: 1200px) {
+  .viz-layout {
+    grid-template-columns: 1fr;
+  }
+  .viz-details {
+    position: static;
+  }
+}

@@ -1,4 +1,4 @@
-import { DocsResponse, Persona, ReviewResponse } from "./types";
+import { DocsResponse, Persona, ReviewResponse, TokenVerifyResponse } from "./types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -147,10 +147,19 @@ export async function docsFromRepo(
       fetch(`${API_BASE}/api/docs/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ repo_url: repoUrl, persona }),
       }),
     progressCb
   );
+}
+
+export async function verifyDocsToken(repoUrl: string, token: string): Promise<TokenVerifyResponse> {
+  const res = await fetch(`${API_BASE}/api/github/verify-docs-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_url: repoUrl, token }),
+  });
+  return handleResponse<TokenVerifyResponse>(res);
 }
 
 export async function docsFromZip(

@@ -9,8 +9,11 @@ pytest.ini
 
 # Node
 node_modules/
+frontend/node_modules/
 .next/
 out/
+dist/
+build/
 
 # Env
 .env
@@ -23,3 +26,9 @@ backend/.cache/
 
 # OS
 .DS_Store
+
+node_modules/
+frontend/node_modules/
+.env
+dist/
+build/
