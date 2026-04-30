@@ -109,7 +109,21 @@ class DocumentationService:
                 f"Classes: {len(item.get('classes', []))}\n"
                 f"Imports: {imports}\n"
                 f"Key symbols:\n{symbol_block}\n"
-                f"Persona note: {persona_style(persona)}\n"
+                f"Persona note: {self._persona_note(persona)}\n"
                 f"Suggested next read: start at line 1, then jump to the listed symbols."
             )
         return modules
+
+    def _persona_note(self, persona: str) -> str:
+        """Resolve persona guidance with a safe local fallback."""
+        try:
+            from backend.services.persona import persona_style as resolve_persona_style
+            return resolve_persona_style(persona)
+        except Exception:
+            fallback = {
+                "Intern": "Explain each finding in simple language and include one practical next action.",
+                "Student": "Clarify concept-level reasoning and connect each fix to software engineering fundamentals.",
+                "Frontend Developer": "Prioritize UX, component boundaries, API contracts, and accessibility implications.",
+                "Backend Developer": "Prioritize correctness, architecture, performance bottlenecks, and scalability trade-offs.",
+            }
+            return fallback.get(persona, fallback["Student"])
