@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from backend.services.nim_client import NIMClient
+from backend.services.persona import persona_style
 from backend.services.structure_service import StructureService
 from backend.utils.settings import settings
 from docs.graph_builder import build_dependency_graph, build_execution_flowchart, build_knowledge_graph
