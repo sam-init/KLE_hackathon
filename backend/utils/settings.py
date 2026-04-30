@@ -43,6 +43,7 @@ class Settings:
 
     # Token for pushing README commits (fine-grained PAT: Contents R/W)
     github_docs_token: str = os.getenv("GITHUB_DOCS_TOKEN", "")
+    token_encryption_secret: str = os.getenv("TOKEN_ENCRYPTION_SECRET", "")
 
     keep_workspaces: bool = os.getenv("KEEP_WORKSPACES", "false").strip().lower() == "true"
 

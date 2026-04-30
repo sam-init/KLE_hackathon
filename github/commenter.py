@@ -217,3 +217,42 @@ def push_readme_to_github(
         logger.warning("Exception pushing %s to %s: %s", path, repo_full_name, exc)
         return False
 
+
+def verify_docs_token_access(repo_full_name: str, token: str) -> tuple[bool, str, str]:
+    """
+    Validate that the provided token can access the repository and likely write contents.
+    Returns: (valid, default_branch, message)
+    """
+    if not token:
+        return False, "", "Token is empty"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    repo_url = f"{GITHUB_API}/repos/{repo_full_name}"
+    try:
+        response = requests.get(repo_url, headers=headers, timeout=15)
+        if response.status_code == 401:
+            return False, "", "Unauthorized token. Check PAT value."
+        if response.status_code == 404:
+            return False, "", "Repository not found for this token."
+        if response.status_code >= 400:
+            return False, "", f"GitHub API error (HTTP {response.status_code})."
+
+        payload = response.json()
+        default_branch = str(payload.get("default_branch") or "").strip()
+        perms = payload.get("permissions") or {}
+        can_push = bool(perms.get("push")) if isinstance(perms, dict) else False
+        if not can_push:
+            return (
+                False,
+                default_branch,
+                "Token can read repo but cannot push. Grant Contents: Read and write.",
+            )
+        return True, default_branch, "Token validated for README create/update."
+    except Exception as exc:
+        logger.warning("Token verification failed for %s: %s", repo_full_name, exc)
+        return False, "", "Could not validate token with GitHub."
+

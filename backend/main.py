@@ -17,6 +17,8 @@ from backend.models.schemas import (
     HealthResponse,
     JobStatus,
     RepoInput,
+    TokenVerifyInput,
+    TokenVerifyResponse,
     ReviewResponse,
     WebhookAck,
 )
@@ -29,10 +31,16 @@ from backend.services.ingestion import (
     ingest_zip_bytes,
 )
 from backend.services.review_service import ReviewService
+from backend.services.token_crypto import decrypt_token, encrypt_token
 from backend.utils.settings import settings
 from docs.parser import parse_repository
 from docs.repo_loader import iter_code_files
-from github.commenter import format_inline_comments, post_pr_review, push_readme_to_github
+from github.commenter import (
+    format_inline_comments,
+    post_pr_review,
+    push_readme_to_github,
+    verify_docs_token_access,
+)
 from github.diff_fetcher import GitHubDiffError, fetch_pr_diff
 from github.pr_handler import build_virtual_files_from_diff
 from github.webhook import SignatureValidationError, validate_github_signature
@@ -196,6 +204,7 @@ async def _job_docs(
     workspace: Path,
     repo_root: Path,
     repo_full_name: str | None = None,
+    encrypted_docs_token: str | None = None,
 ) -> None:
     try:
         logger.info("Job started | type=docs job_id=%s persona=%s repo=%s", job_id, persona, repo_full_name or "upload")
@@ -209,11 +218,18 @@ async def _job_docs(
         JOBS[job_id] = {"status": "done", "result": response.model_dump(), "message": "Docs generated"}
         logger.info("Job completed | type=docs job_id=%s run_id=%s", job_id, run_id)
 
-        # Push README to GitHub using the dedicated docs token
-        if repo_full_name and result.get("readme") and settings.github_docs_token:
+        # Push README to GitHub using token priority:
+        # request-scoped encrypted PAT -> env GITHUB_DOCS_TOKEN
+        docs_token = settings.github_docs_token
+        if encrypted_docs_token:
+            try:
+                docs_token = decrypt_token(encrypted_docs_token)
+            except ValueError:
+                logger.warning("Invalid encrypted docs token payload for job %s", job_id)
+        if repo_full_name and result.get("readme") and docs_token:
             pushed = push_readme_to_github(
                 repo_full_name=repo_full_name,
-                token=settings.github_docs_token,
+                token=docs_token,
                 readme_content=result["readme"],
             )
             logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
@@ -281,10 +297,42 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
     repo_full_name = _extract_repo_name(payload.repo_url)
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "processing", "message": "Docs generation queued", "result": None}
-    background_tasks.add_task(_job_docs, job_id, payload.persona, workspace, repo_root, repo_full_name)
+    background_tasks.add_task(
+        _job_docs,
+        job_id,
+        payload.persona,
+        workspace,
+        repo_root,
+        repo_full_name,
+        payload.encrypted_docs_token,
+    )
     logger.info("Job queued | type=docs source=repo job_id=%s repo=%s", job_id, repo_full_name or "unknown")
     msg = f"Docs queued — README will be pushed to {repo_full_name}" if repo_full_name else "Docs queued"
     return JobStatus(job_id=job_id, status="processing", message=msg)
+
+
+@app.post("/api/github/verify-docs-token", response_model=TokenVerifyResponse)
+def verify_docs_token(payload: TokenVerifyInput) -> TokenVerifyResponse:
+    repo_full_name = _extract_repo_name(payload.repo_url)
+    if not repo_full_name:
+        raise HTTPException(status_code=400, detail="Invalid GitHub repository URL")
+
+    valid, default_branch, message = verify_docs_token_access(repo_full_name, payload.token)
+    if not valid:
+        return TokenVerifyResponse(
+            valid=False,
+            repo_full_name=repo_full_name,
+            default_branch=default_branch or None,
+            message=message,
+        )
+
+    return TokenVerifyResponse(
+        valid=True,
+        repo_full_name=repo_full_name,
+        default_branch=default_branch or None,
+        encrypted_token=encrypt_token(payload.token),
+        message=message,
+    )
 
 
 @app.post("/api/docs/upload", response_model=JobStatus)
