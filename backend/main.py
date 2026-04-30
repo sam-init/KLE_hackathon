@@ -9,6 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+import requests
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -187,6 +188,32 @@ def _build_result_cache_key(mode: str, repo_url: str, persona: str) -> str:
     normalized = repo_url.strip().lower()
     digest = hashlib.sha256(f"{mode}|{normalized}|{persona}".encode("utf-8")).hexdigest()
     return f"{mode}:{digest}"
+
+
+def _is_pr_open(repo_full_name: str, pr_number: int, token: str) -> bool:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}"
+    try:
+        resp = requests.get(url, headers=headers, timeout=15)
+        if resp.status_code >= 400:
+            logger.warning(
+                "PR state check failed for %s#%d: HTTP %d",
+                repo_full_name,
+                pr_number,
+                resp.status_code,
+            )
+            # Fail-open to avoid dropping comments during transient GH API issues.
+            return True
+        state = str(resp.json().get("state", "")).lower()
+        return state == "open"
+    except Exception as exc:
+        logger.warning("PR state check exception for %s#%d: %s", repo_full_name, pr_number, exc)
+        # Fail-open for resilience.
+        return True
 
 
 def _resolve_docs_token(encrypted_docs_token: str | None) -> str:
@@ -431,6 +458,10 @@ async def _run_pr_review_background(
         logger.exception("PR review: review_service failed for %s#%d: %s", repo_name, pr_number, exc)
         return
 
+    if not _is_pr_open(repo_name, pr_number, settings.github_review_token):
+        logger.info("PR review skipped posting because PR is closed: %s#%d", repo_name, pr_number)
+        return
+
     state_store.set_run(run_id, {
         "type": "github_pr_review",
         "repo": repo_name,
@@ -457,6 +488,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
     event = request.headers.get("X-GitHub-Event", "")
+    logger.info("GitHub webhook received | event=%s", event)
 
     try:
         validate_github_signature(raw_body, settings.github_webhook_secret, signature)
@@ -472,7 +504,9 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
         return WebhookAck(accepted=True, action="ignored", message=f"Event {event!r} ignored")
 
     action = payload.get("action", "")
+    logger.info("GitHub webhook action | event=%s action=%s", event, action)
     if action not in {"opened", "synchronize", "reopened"}:
+        logger.info("GitHub webhook ignored | unsupported action=%s", action)
         return WebhookAck(accepted=True, action="ignored", message=f"Action {action!r} ignored")
 
     pr = payload.get("pull_request", {})
@@ -482,6 +516,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     if not repo_name or not pr_number:
         raise HTTPException(status_code=400, detail="Invalid pull_request payload")
+    logger.info("GitHub webhook PR payload parsed | repo=%s pr=%s", repo_name, pr_number)
 
     if not settings.github_review_token:
         logger.warning("GITHUB_REVIEW_TOKEN not set — cannot post PR review for %s#%d", repo_name, pr_number)
@@ -489,6 +524,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_pr_review_background, repo_name, pr_number, run_id)
+    logger.info("GitHub webhook queued PR review | repo=%s pr=%s run_id=%s", repo_name, pr_number, run_id)
 
     return WebhookAck(
         accepted=True,
