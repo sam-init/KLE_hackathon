@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import FaultyTerminal from "@/app/components/FaultyTerminal";
 import { DocsResults } from "@/components/DocsResults";
 import { ReviewResults } from "@/components/ReviewResults";
 import { GraphPanel } from "@/components/GraphPanel";
@@ -15,14 +16,13 @@ const DEMO_REPO = "https://github.com/tiangolo/fastapi";
 type ResultTab = "review" | "docs" | "graphs";
 type InputMode = "repo" | "zip";
 
-/* ───── Loading skeleton ─────────────────────────────────── */
 function LoadingSkeleton() {
   return (
-    <div className="card" style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+    <div className="card result-shell" style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4, fontFamily: "var(--font-mono)" }}>
         <div className="spinner" />
         <span style={{ color: "var(--ink-2)", fontSize: 14, fontWeight: 600 }}>
-          AI agents are processing your repository…
+          AI agents are processing your repository...
         </span>
       </div>
       {[140, 90, 200, 110, 80].map((h, i) => (
@@ -32,16 +32,27 @@ function LoadingSkeleton() {
   );
 }
 
-/* ───── Empty placeholder ────────────────────────────────── */
 function EmptyState({ tab }: { tab: ResultTab }) {
   const map = {
-    review: { icon: "🔍", title: "Code Reviewer Ready", desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review." },
-    docs: { icon: "📚", title: "Docs Generator Ready", desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs." },
-    graphs: { icon: "🕸️", title: "Graphs Ready", desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs." },
+    review: {
+      icon: "R",
+      title: "Code Reviewer Ready",
+      desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review.",
+    },
+    docs: {
+      icon: "D",
+      title: "Docs Generator Ready",
+      desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs.",
+    },
+    graphs: {
+      icon: "G",
+      title: "Graphs Ready",
+      desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs.",
+    },
   };
   const { icon, title, desc } = map[tab];
   return (
-    <div className="card empty-state">
+    <div className="card empty-state result-shell">
       <div className="icon">{icon}</div>
       <h3>{title}</h3>
       <p>{desc}</p>
@@ -49,7 +60,6 @@ function EmptyState({ tab }: { tab: ResultTab }) {
   );
 }
 
-/* ───── Dashboard ────────────────────────────────────────── */
 export default function DashboardPage() {
   const [persona, setPersona] = useState<Persona>("Student");
   const [repoUrl, setRepoUrl] = useState("");
@@ -62,7 +72,6 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
 
   async function run(mode: "repo" | "zip") {
@@ -80,14 +89,13 @@ export default function DashboardPage() {
 
     try {
       if (resultTab === "review" || resultTab === "graphs") {
-        // "graphs" sub-tab shows docs graphs, trigger docs
         const doRev = resultTab === "review";
         if (doRev) {
           const data = mode === "repo"
             ? await reviewFromRepo(repoUrl, persona)
             : await reviewFromZip(file!, persona);
           setReviewData(data);
-          setSuccess(`Review complete — ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
+          setSuccess(`Review complete - ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
         } else {
           const data = mode === "repo"
             ? await docsFromRepo(repoUrl, persona)
@@ -112,31 +120,83 @@ export default function DashboardPage() {
   const hasResults = reviewData !== null || docsData !== null;
 
   return (
-    <>
-      {/* ── Nav ── */}
+    <div className="dashboard-shell">
+      <div className="dashboard-terminal-bg" aria-hidden>
+        <FaultyTerminal
+          scale={1.45}
+          gridMul={[2, 1]}
+          digitSize={1.2}
+          timeScale={0.45}
+          scanlineIntensity={0.45}
+          glitchAmount={1}
+          flickerAmount={1}
+          noiseAmp={1}
+          chromaticAberration={0}
+          dither={0}
+          curvature={0.08}
+          tint="#A7EF9E"
+          mouseReact
+          mouseStrength={0.35}
+          pageLoadAnimation
+          brightness={0.5}
+          style={{ opacity: 0.22 }}
+        />
+      </div>
+      <div className="dashboard-scanlines" aria-hidden />
+      <div className="dashboard-scanbeam" aria-hidden />
+
       <nav className="nav">
-        <Link href="/" className="nav-brand">⚡ DevPilot AI</Link>
-        <span style={{ color: "var(--border)", fontSize: 18 }}>/</span>
-        <span style={{ color: "var(--ink-2)", fontSize: 14 }}>Dashboard</span>
+        <Link href="/" className="nav-brand">
+          {" >_ Cypher"}<span className="nav-brand-dim">AI</span>
+        </Link>
+        <span className="nav-slash">/</span>
+        <span className="nav-label">Dashboard</span>
         <span className="nav-sep" />
         {hasResults && (
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => { setReviewData(null); setDocsData(null); setSuccess(null); setError(null); }}
+            onClick={() => {
+              setReviewData(null);
+              setDocsData(null);
+              setSuccess(null);
+              setError(null);
+            }}
           >
-            ✕ Clear results
+            x Clear Results
           </button>
         )}
       </nav>
 
-      <main className="container" style={{ paddingTop: 20 }}>
+      <main className="container dashboard-main">
+        <header className="dashboard-hero card">
+          <div className="dashboard-eyebrow">$ cypher --dashboard --agents 6</div>
+          <h1 className="dashboard-title">Multi-Agent Workspace</h1>
+          <p className="dashboard-subtitle">
+            Run code review, docs generation, and graph synthesis from one terminal-style control plane.
+          </p>
+          <div className="stat-row">
+            <span className="stat-pill">
+              <span className="dot" style={{ background: "var(--danger)" }} />
+              Review
+            </span>
+            <span className="stat-pill">
+              <span className="dot" style={{ background: "var(--accent)" }} />
+              Docs
+            </span>
+            <span className="stat-pill">
+              <span className="dot" style={{ background: "var(--success)" }} />
+              Graphs
+            </span>
+            <span className="stat-pill">
+              <span className="dot" style={{ background: "var(--warning)" }} />
+              Persona-Aware
+            </span>
+          </div>
+        </header>
+
         <div className="dashboard-grid">
-
-          {/* ─── LEFT SIDEBAR ─── */}
-          <aside>
-            <div className="card" style={{ display: "grid", gap: 20 }}>
-
-              {/* Mode toggle */}
+          <aside className="dashboard-sidebar">
+            <div className="card control-card" style={{ display: "grid", gap: 20 }}>
               <div className="sidebar-section">
                 <div className="label">Action</div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -148,13 +208,12 @@ export default function DashboardPage() {
                       onClick={() => setResultTab(t)}
                       disabled={loading}
                     >
-                      {t === "review" ? "🔍 Review" : t === "docs" ? "📚 Docs" : "🕸️ Graphs"}
+                      {t === "review" ? "Review" : t === "docs" ? "Docs" : "Graphs"}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Persona */}
               <div className="sidebar-section">
                 <div className="label">Persona</div>
                 <div className="persona-grid">
@@ -171,7 +230,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Input mode */}
               <div className="sidebar-section">
                 <div className="label">Input Source</div>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -206,14 +264,13 @@ export default function DashboardPage() {
                     disabled={loading}
                     onKeyDown={(e) => e.key === "Enter" && run("repo")}
                   />
-                  {/* Demo fill */}
                   <button
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-secondary btn-sm"
                     style={{ marginTop: 6, width: "100%", justifyContent: "flex-start" }}
                     onClick={() => setRepoUrl(DEMO_REPO)}
                     disabled={loading}
                   >
-                    ✨ Try Demo Repo
+                    Try Demo Repo
                   </button>
                   <button
                     id="run-repo-btn"
@@ -223,9 +280,9 @@ export default function DashboardPage() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                      <><div className="spinner" /> Processing...</>
                     ) : (
-                      "▶ Run with Repo URL"
+                      "Run With Repo URL"
                     )}
                   </button>
                 </div>
@@ -243,7 +300,7 @@ export default function DashboardPage() {
                   />
                   {file && (
                     <div style={{ fontSize: 12, color: "var(--success)", marginTop: 6 }}>
-                      ✓ {file.name} ({(file.size / 1024).toFixed(0)} KB)
+                      OK {file.name} ({(file.size / 1024).toFixed(0)} KB)
                     </div>
                   )}
                   <button
@@ -254,43 +311,37 @@ export default function DashboardPage() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                      <><div className="spinner" /> Processing...</>
                     ) : (
-                      "▶ Run with ZIP"
+                      "Run With ZIP"
                     )}
                   </button>
                 </div>
               )}
 
-              {/* Status messages */}
               {error && (
                 <div className="alert alert-error sidebar-section">
-                  <span>⚠</span> {error}
+                  <span>!</span> {error}
                 </div>
               )}
               {success && (
                 <div className="alert alert-success sidebar-section">
-                  <span>✓</span> {success}
+                  <span>OK</span> {success}
                 </div>
               )}
 
-              {/* Info blurb */}
-              <div className="card-inset" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.6 }}>
-                <strong style={{ color: "var(--ink)" }}>Tip:</strong> Select a persona to adapt
-                the output tone. Use "Try Demo Repo" to auto-fill a sample repository.
+              <div className="card-inset tip-card" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.6 }}>
+                <strong style={{ color: "var(--ink)" }}>Tip:</strong> Select a persona to adapt the output tone.
+                Use "Try Demo Repo" to auto-fill a sample repository.
               </div>
             </div>
           </aside>
 
-          {/* ─── RIGHT RESULTS PANEL ─── */}
-          <section>
-            {/* Loading */}
+          <section className="dashboard-results">
             {loading && <LoadingSkeleton />}
 
-            {/* Results */}
             {!loading && (
               <>
-                {/* Tabs — show only when we have data */}
                 {hasResults && (
                   <div className="tabs">
                     {reviewData !== null && (
@@ -299,7 +350,7 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "review" ? "active" : ""}`}
                         onClick={() => setResultTab("review")}
                       >
-                        🔍 Code Review
+                        Code Review
                         <span className="tab-count">{reviewData.findings.length}</span>
                       </button>
                     )}
@@ -309,7 +360,7 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "docs" ? "active" : ""}`}
                         onClick={() => setResultTab("docs")}
                       >
-                        📚 Documentation
+                        Documentation
                       </button>
                     )}
                     {docsData !== null && (
@@ -318,23 +369,20 @@ export default function DashboardPage() {
                         className={`tab ${resultTab === "graphs" ? "active" : ""}`}
                         onClick={() => setResultTab("graphs")}
                       >
-                        🕸️ Graphs
+                        Graphs
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* Review tab */}
                 {resultTab === "review" && (
                   reviewData ? <ReviewResults data={reviewData} /> : <EmptyState tab="review" />
                 )}
 
-                {/* Docs tab */}
                 {resultTab === "docs" && (
                   docsData ? <DocsResults data={docsData} /> : <EmptyState tab="docs" />
                 )}
 
-                {/* Graphs tab */}
                 {resultTab === "graphs" && (
                   docsData ? (
                     <div className="grid">
@@ -349,6 +397,6 @@ export default function DashboardPage() {
           </section>
         </div>
       </main>
-    </>
+    </div>
   );
 }
