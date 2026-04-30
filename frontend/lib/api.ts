@@ -1,7 +1,8 @@
 import { DocsResponse, Persona, ReviewResponse, TokenVerifyResponse } from "./types";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
+function getApiBase(): string {
+  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/$/, "") ?? "";
+}
 
 function normalizeErrorMessage(raw: string): string {
   const msg = raw.trim();
@@ -12,7 +13,7 @@ function normalizeErrorMessage(raw: string): string {
   }
 
   if (lower.includes("failed to fetch") || lower.includes("networkerror")) {
-    return "Unable to reach backend API. Verify Render backend is awake and NEXT_PUBLIC_API_BASE_URL points to the correct .onrender.com URL.";
+    return "Unable to reach the backend API. Verify your Render backend is awake and NEXT_PUBLIC_API_BASE_URL points to the correct service URL.";
   }
 
   if (lower.includes("timed out") || lower.includes("timeout")) {
@@ -80,7 +81,7 @@ async function submitAndPoll<T>(
   while (true) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-    const pollRes = await fetch(`${API_BASE}/api/jobs/${job_id}`);
+    const pollRes = await fetch(`${getApiBase()}/api/jobs/${job_id}`);
     const status: JobStatus = await handleResponse<JobStatus>(pollRes);
 
     if (onProgress) onProgress(status.message || status.status);
@@ -103,7 +104,7 @@ export async function reviewFromRepo(
 ): Promise<ReviewResponse> {
   return submitAndPoll<ReviewResponse>(
     () =>
-      fetch(`${API_BASE}/api/review/repo`, {
+      fetch(`${getApiBase()}/api/review/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl, persona }),
@@ -122,7 +123,7 @@ export async function reviewFromZip(
   fd.append("persona", persona);
 
   return submitAndPoll<ReviewResponse>(
-    () => fetch(`${API_BASE}/api/review/upload`, { method: "POST", body: fd }),
+    () => fetch(`${getApiBase()}/api/review/upload`, { method: "POST", body: fd }),
     onProgress
   );
 }
@@ -136,7 +137,7 @@ export async function docsFromRepo(
 ): Promise<DocsResponse> {
   return submitAndPoll<DocsResponse>(
     () =>
-      fetch(`${API_BASE}/api/docs/repo`, {
+      fetch(`${getApiBase()}/api/docs/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl, persona, encrypted_docs_token: encryptedDocsToken || null }),
@@ -146,7 +147,7 @@ export async function docsFromRepo(
 }
 
 export async function verifyDocsToken(repoUrl: string, token: string): Promise<TokenVerifyResponse> {
-  const res = await fetch(`${API_BASE}/api/github/verify-docs-token`, {
+  const res = await fetch(`${getApiBase()}/api/github/verify-docs-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ repo_url: repoUrl, token }),
@@ -164,7 +165,7 @@ export async function docsFromZip(
   fd.append("persona", persona);
 
   return submitAndPoll<DocsResponse>(
-    () => fetch(`${API_BASE}/api/docs/upload`, { method: "POST", body: fd }),
+    () => fetch(`${getApiBase()}/api/docs/upload`, { method: "POST", body: fd }),
     onProgress
   );
 }

@@ -1,19 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 import { DocsResults } from "@/components/DocsResults";
 import { ReviewResults } from "@/components/ReviewResults";
-import { GraphPanel } from "@/components/GraphPanel";
 import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip, verifyDocsToken } from "@/lib/api";
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
+import { GraphView } from "@/src/components/GraphView";
+import { TreeView } from "@/src/components/TreeView";
+import { GraphDatasetKey, createVisualizationBundle, getConnectedNodeIds } from "@/src/utils/graphAdapter";
 
 const PERSONAS: Persona[] = ["Intern", "Student", "Frontend Developer", "Backend Developer"];
 const DEMO_REPO = "https://github.com/tiangolo/fastapi";
 
 type ResultTab = "review" | "docs" | "graphs";
 type InputMode = "repo" | "zip";
+type VisualizationMode = "split" | "graph" | "tree";
 
 /* ───── Loading skeleton ─────────────────────────────────── */
 function LoadingSkeleton() {
@@ -68,6 +71,28 @@ export default function DashboardPage() {
 
   // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
+  const [graphDataset, setGraphDataset] = useState<GraphDatasetKey>("dependency_graph");
+  const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>("split");
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const visualization = useMemo(
+    () => (docsData ? createVisualizationBundle(docsData, graphDataset) : null),
+    [docsData, graphDataset],
+  );
+
+  const selectedNode = useMemo(
+    () => visualization?.graph.nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [selectedNodeId, visualization],
+  );
+
+  const connectedNodeIds = useMemo(
+    () => (visualization ? getConnectedNodeIds(visualization.graph, selectedNodeId) : new Set<string>()),
+    [selectedNodeId, visualization],
+  );
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+  }, [graphDataset, docsData?.run_id]);
 
   async function run(mode: "repo" | "zip") {
     if (mode === "repo" && !repoUrl) {
@@ -402,10 +427,141 @@ export default function DashboardPage() {
                 {/* Graphs tab */}
                 {resultTab === "graphs" && (
                   docsData ? (
-                    <div className="grid">
-                      <GraphPanel title="Dependency Graph"    graph={docsData.dependency_graph} />
-                      <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
-                      <GraphPanel title="Knowledge Graph"     graph={docsData.knowledge_graph} />
+                    <div className="grid" style={{ gap: 16 }}>
+                      <div className="viz-toolbar card">
+                        <div className="viz-toolbar-row">
+                          {([
+                            ["dependency_graph", "Dependency"],
+                            ["execution_flowchart", "Execution"],
+                            ["knowledge_graph", "Knowledge"],
+                          ] as Array<[GraphDatasetKey, string]>).map(([key, label]) => (
+                            <button
+                              key={key}
+                              className={`btn btn-sm ${graphDataset === key ? "btn-primary" : "btn-secondary"}`}
+                              onClick={() => setGraphDataset(key)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="viz-toolbar-row">
+                          {([
+                            ["split", "Split View"],
+                            ["graph", "Graph View"],
+                            ["tree", "Tree View"],
+                          ] as Array<[VisualizationMode, string]>).map(([mode, label]) => (
+                            <button
+                              key={mode}
+                              className={`btn btn-sm ${visualizationMode === mode ? "btn-primary" : "btn-secondary"}`}
+                              onClick={() => setVisualizationMode(mode)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="viz-stats-grid">
+                        <div className="viz-stat-card">
+                          <span>Files mapped</span>
+                          <strong>{visualization?.stats.fileCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Folders</span>
+                          <strong>{visualization?.stats.folderCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Edges</span>
+                          <strong>{visualization?.stats.edgeCount ?? 0}</strong>
+                        </div>
+                        <div className="viz-stat-card">
+                          <span>Hotspot</span>
+                          <strong>{selectedNode?.label ?? visualization?.stats.densestNodeId?.split("/").pop() ?? "n/a"}</strong>
+                        </div>
+                      </div>
+
+                      <div className={`viz-shell mode-${visualizationMode}`}>
+                        {visualization && visualizationMode !== "graph" && (
+                          <TreeView
+                            tree={visualization.tree}
+                            selectedNodeId={selectedNodeId}
+                            onNodeSelect={setSelectedNodeId}
+                          />
+                        )}
+
+                        {visualization && visualizationMode !== "tree" && (
+                          <GraphView
+                            title={
+                              graphDataset === "dependency_graph"
+                                ? "Dependency Graph"
+                                : graphDataset === "execution_flowchart"
+                                  ? "Execution Flow"
+                                  : "Knowledge Graph"
+                            }
+                            graph={visualization.graph}
+                            selectedNodeId={selectedNodeId}
+                            onNodeSelect={setSelectedNodeId}
+                          />
+                        )}
+
+                        <aside className="viz-panel detail-panel">
+                          <div className="viz-panel-header">
+                            <div>
+                              <h3>Inspector</h3>
+                              <p>Selection-aware context for the active graph.</p>
+                            </div>
+                          </div>
+
+                          {selectedNode ? (
+                            <div className="detail-stack">
+                              <div className="detail-card">
+                                <span className="detail-kicker">Selected file</span>
+                                <strong>{selectedNode.label}</strong>
+                                <code>{selectedNode.path}</code>
+                              </div>
+                              <div className="detail-grid">
+                                <div className="detail-metric">
+                                  <span>Group</span>
+                                  <strong>{selectedNode.group}</strong>
+                                </div>
+                                <div className="detail-metric">
+                                  <span>Inbound</span>
+                                  <strong>{selectedNode.inbound}</strong>
+                                </div>
+                                <div className="detail-metric">
+                                  <span>Outbound</span>
+                                  <strong>{selectedNode.outbound}</strong>
+                                </div>
+                                <div className="detail-metric">
+                                  <span>Neighbors</span>
+                                  <strong>{Math.max(connectedNodeIds.size - 1, 0)}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="detail-empty">
+                              Select a file in the graph or tree to inspect its dependency neighborhood.
+                            </div>
+                          )}
+
+                          <div className="detail-stack">
+                            <div className="detail-card">
+                              <span className="detail-kicker">Run metadata</span>
+                              <strong>{docsData.persona}</strong>
+                              <span>
+                                {docsData.doc_rot_detected
+                                  ? "README was regenerated after doc-rot detection."
+                                  : "Documentation generated from the current backend pipeline."}
+                              </span>
+                            </div>
+                            <div className="detail-card">
+                              <span className="detail-kicker">Available outputs</span>
+                              <span>{Object.keys(docsData.modular_docs ?? {}).length} modular docs</span>
+                              <span>{Object.keys(docsData.docstrings ?? {}).length} docstring files</span>
+                            </div>
+                          </div>
+                        </aside>
+                      </div>
                     </div>
                   ) : <EmptyState tab="graphs" />
                 )}

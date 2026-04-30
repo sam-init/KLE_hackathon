@@ -11,6 +11,8 @@ pytest.ini
 node_modules/
 .next/
 out/
+dist/
+build/
 
 # Env
 .env
