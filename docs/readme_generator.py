@@ -148,6 +148,35 @@ def _infer_purpose(parsed_files: list[dict[str, Any]]) -> str:
     return f"The system is built around {joined}, inferred from module names, symbols, and imports."
 
 
+def _rank_core_modules(parsed_files: list[dict[str, Any]], max_items: int = 5) -> list[dict[str, Any]]:
+    return sorted(
+        parsed_files,
+        key=lambda x: (
+            len(x.get("imports", [])) * 2 + len(x.get("functions", [])) + len(x.get("classes", [])),
+            x.get("line_count", 0),
+        ),
+        reverse=True,
+    )[:max_items]
+
+
+def _overview_narrative(understanding: dict[str, Any]) -> str:
+    entry = understanding["entrypoints"][0]["path"] if understanding["entrypoints"] else ""
+    core = _rank_core_modules(understanding["files"], max_items=4)
+    core_paths = [f"`{item['path']}`" for item in core]
+    module_part = ", ".join(core_paths) if core_paths else "detected modules"
+
+    steps = understanding["flow_steps"]
+    flow_hint = " -> ".join(step.replace("`", "") for step in steps[:4]) if steps else ""
+    if entry and flow_hint:
+        return (
+            f"This project executes primarily through `{entry}` and coordinates the workflow across {module_part}. "
+            f"At runtime, the main flow is: {flow_hint}."
+        )
+    if entry:
+        return f"This project executes primarily through `{entry}` and coordinates logic across {module_part}."
+    return f"This codebase centers on {module_part}, with behavior inferred from imports and symbol relationships."
+
+
 def _group_paths(paths: list[str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}
     for path in sorted(paths):
@@ -211,22 +240,33 @@ def analyze_project(parsed_files: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _render_overview(understanding: dict[str, Any]) -> str:
-    file_count = len(understanding["files"])
     lang_line = ", ".join(f"{k}: {v}" for k, v in understanding["languages"].items()) or "unknown"
     project_types = ", ".join(understanding["project_types"])
+    narrative = _overview_narrative(understanding)
     return (
+        f"{narrative}\n\n"
         f"{understanding['purpose']}\n\n"
         f"- Detected project type: {project_types}\n"
-        f"- Parsed source surface: {file_count} files\n"
         f"- Language profile: {lang_line}"
     )
 
 
 def _render_architecture(understanding: dict[str, Any]) -> str:
-    steps = understanding["flow_steps"]
+    steps: list[str] = understanding["flow_steps"]
     if not steps:
         return ""
-    return "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(steps))
+    module_graph: dict[str, set[str]] = understanding["graph"]
+    hub_modules = sorted(module_graph.items(), key=lambda x: len(x[1]), reverse=True)[:4]
+    flow_lines = [f"{idx + 1}. {step}" for idx, step in enumerate(steps)]
+    if hub_modules:
+        flow_lines.append("")
+        flow_lines.append("Module interaction hotspots:")
+        for src, targets in hub_modules:
+            if not targets:
+                continue
+            sample = ", ".join(f"`{t}`" for t in sorted(targets)[:3])
+            flow_lines.append(f"- `{src}` imports/depends on {sample}")
+    return "\n".join(flow_lines)
 
 
 def _render_structure(understanding: dict[str, Any]) -> str:
