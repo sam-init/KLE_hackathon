@@ -182,6 +182,35 @@ def _build_result_cache_key(mode: str, repo_url: str, persona: str) -> str:
     return f"{mode}:{digest}"
 
 
+def _resolve_docs_token(encrypted_docs_token: str | None) -> str:
+    docs_token = settings.github_docs_token
+    if encrypted_docs_token:
+        try:
+            docs_token = decrypt_token(encrypted_docs_token)
+        except ValueError:
+            logger.warning("Invalid encrypted docs token payload")
+    return docs_token
+
+
+def _push_readme_if_available(
+    repo_full_name: str | None,
+    readme_content: str | None,
+    encrypted_docs_token: str | None,
+) -> None:
+    if not repo_full_name or not readme_content:
+        return
+    docs_token = _resolve_docs_token(encrypted_docs_token)
+    if not docs_token:
+        logger.warning("No docs token available — skipping README push to %s", repo_full_name)
+        return
+    pushed = push_readme_to_github(
+        repo_full_name=repo_full_name,
+        token=docs_token,
+        readme_content=readme_content,
+    )
+    logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
+
+
 # ── Background job workers ────────────────────────────────────────────────────
 
 async def _job_review(
@@ -237,23 +266,7 @@ async def _job_docs(
             state_store.set_result_cache(result_cache_key, response_payload)
         logger.info("Job completed | type=docs job_id=%s run_id=%s", job_id, run_id)
 
-        # Push README to GitHub using token priority:
-        # request-scoped encrypted PAT -> env GITHUB_DOCS_TOKEN
-        docs_token = settings.github_docs_token
-        if encrypted_docs_token:
-            try:
-                docs_token = decrypt_token(encrypted_docs_token)
-            except ValueError:
-                logger.warning("Invalid encrypted docs token payload for job %s", job_id)
-        if repo_full_name and result.get("readme") and docs_token:
-            pushed = push_readme_to_github(
-                repo_full_name=repo_full_name,
-                token=docs_token,
-                readme_content=result["readme"],
-            )
-            logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
-        elif repo_full_name and not settings.github_docs_token:
-            logger.warning("GITHUB_DOCS_TOKEN not set — skipping README push to %s", repo_full_name)
+        _push_readme_if_available(repo_full_name, result.get("readme"), encrypted_docs_token)
 
     except Exception as exc:
         logger.exception("Job %s (docs) failed: %s", job_id, exc)
@@ -313,7 +326,10 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
     logger.info("API payload accepted | endpoint=/api/docs/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
     result_cache_key = _build_result_cache_key("docs", payload.repo_url, payload.persona)
     cached = state_store.get_result_cache(result_cache_key)
+    repo_full_name = _extract_repo_name(payload.repo_url)
     if cached:
+        # Cache hit should still preserve side effect for README sync.
+        _push_readme_if_available(repo_full_name, str(cached.get("readme", "")) or None, payload.encrypted_docs_token)
         return JobStatus(job_id="cached-docs", status="done", message="Docs served from cache", result=cached)
     workspace = create_workspace()
     try:
@@ -321,7 +337,6 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
     except IngestionError as exc:
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    repo_full_name = _extract_repo_name(payload.repo_url)
     job_id = str(uuid.uuid4())
     state_store.set_job(job_id, {"status": "processing", "message": "Docs generation queued", "result": None})
     background_tasks.add_task(
