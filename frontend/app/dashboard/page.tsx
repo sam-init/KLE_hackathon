@@ -6,7 +6,7 @@ import Link from "next/link";
 import { DocsResults } from "@/components/DocsResults";
 import { ReviewResults } from "@/components/ReviewResults";
 import { GraphPanel } from "@/components/GraphPanel";
-import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip } from "@/lib/api";
+import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip, verifyDocsToken } from "@/lib/api";
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
 
 const PERSONAS: Persona[] = ["Intern", "Student", "Frontend Developer", "Backend Developer"];
@@ -61,6 +61,10 @@ export default function DashboardPage() {
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [success, setSuccess]       = useState<string | null>(null);
+  const [docsPat, setDocsPat] = useState("");
+  const [encryptedDocsToken, setEncryptedDocsToken] = useState<string | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<string | null>(null);
+  const [verifyingToken, setVerifyingToken] = useState(false);
 
   // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
@@ -90,14 +94,14 @@ export default function DashboardPage() {
           setSuccess(`Review complete — ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
         } else {
           const data = mode === "repo"
-            ? await docsFromRepo(repoUrl, persona)
+            ? await docsFromRepo(repoUrl, persona, encryptedDocsToken ?? undefined)
             : await docsFromZip(file!, persona);
           setDocsData(data);
           setSuccess("Graphs generated successfully.");
         }
       } else {
         const data = mode === "repo"
-          ? await docsFromRepo(repoUrl, persona)
+          ? await docsFromRepo(repoUrl, persona, encryptedDocsToken ?? undefined)
           : await docsFromZip(file!, persona);
         setDocsData(data);
         setSuccess("Documentation generated successfully.");
@@ -110,6 +114,39 @@ export default function DashboardPage() {
   }
 
   const hasResults = reviewData !== null || docsData !== null;
+
+  async function handleVerifyDocsToken() {
+    if (!repoUrl) {
+      setError("Enter repository URL before verifying PAT.");
+      return;
+    }
+    if (!docsPat.trim()) {
+      setError("Enter a fine-grained PAT to verify.");
+      return;
+    }
+
+    setError(null);
+    setTokenStatus(null);
+    setVerifyingToken(true);
+    try {
+      const result = await verifyDocsToken(repoUrl, docsPat.trim());
+      if (!result.valid || !result.encrypted_token) {
+        setEncryptedDocsToken(null);
+        setTokenStatus(result.message || "Token verification failed.");
+        return;
+      }
+      setEncryptedDocsToken(result.encrypted_token);
+      setTokenStatus(
+        `PAT verified for ${result.repo_full_name ?? "repo"}${result.default_branch ? ` (default branch: ${result.default_branch})` : ""}.`
+      );
+      setDocsPat("");
+    } catch (err) {
+      setEncryptedDocsToken(null);
+      setTokenStatus(err instanceof Error ? err.message : "Token verification failed.");
+    } finally {
+      setVerifyingToken(false);
+    }
+  }
 
   return (
     <>
@@ -228,6 +265,34 @@ export default function DashboardPage() {
                       "▶ Run with Repo URL"
                     )}
                   </button>
+
+                  <div className="card-inset" style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                    <label htmlFor="docs-pat" className="label" style={{ marginBottom: 0 }}>
+                      GitHub PAT for README push (optional)
+                    </label>
+                    <input
+                      id="docs-pat"
+                      className="input"
+                      type="password"
+                      autoComplete="off"
+                      placeholder="github_pat_..."
+                      value={docsPat}
+                      onChange={(e) => setDocsPat(e.target.value)}
+                      disabled={loading || verifyingToken}
+                    />
+                    <button
+                      className="btn btn-secondary btn-full"
+                      onClick={handleVerifyDocsToken}
+                      disabled={loading || verifyingToken}
+                    >
+                      {verifyingToken ? "Verifying…" : "Verify + Encrypt PAT"}
+                    </button>
+                    {tokenStatus && (
+                      <div style={{ fontSize: 12, color: encryptedDocsToken ? "var(--success)" : "var(--danger)" }}>
+                        {tokenStatus}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="sidebar-section">

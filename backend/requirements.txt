@@ -6,6 +6,7 @@ requests
 httpx
 networkx
 PyJWT[crypto]
+cryptography
 python-dotenv
 pytest
 pytest-asyncio
