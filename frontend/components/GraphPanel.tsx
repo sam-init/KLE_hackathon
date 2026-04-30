@@ -59,7 +59,6 @@ export function GraphPanel({ title, graph }: Props) {
   const height = 380;
 
   const positioned = useMemo(() => layoutNodes(nodes, width, height), [nodes]);
-
   const posMap = useMemo(() => {
     const m: Record<string, PositionedNode> = {};
     for (const n of positioned) m[n.id] = n;
@@ -131,7 +130,6 @@ export function GraphPanel({ title, graph }: Props) {
           const y1 = src.y + (dy / dist) * r;
           const x2 = tgt.x - (dx / dist) * (r + 8);
           const y2 = tgt.y - (dy / dist) * (r + 8);
-
           return (
             <line
               key={`e-${idx}`}

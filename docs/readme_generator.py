@@ -97,25 +97,6 @@ def _build_module_graph(parsed_files: list[dict[str, Any]]) -> dict[str, set[str
     return edges
 
 
-def _extract_capabilities(parsed_files: list[dict[str, Any]]) -> list[str]:
-    capabilities: list[str] = []
-    joined_content = "\n".join(str(item.get("content", ""))[:4000] for item in parsed_files[:20]).lower()
-    paths = " ".join(item["path"].lower() for item in parsed_files)
-    if "@app.route" in joined_content or "flask" in joined_content or "fastapi" in joined_content:
-        capabilities.append("exposes web/API endpoints")
-    if "/api/" in paths or "controller" in paths or "route" in paths:
-        capabilities.append("handles request routing and response orchestration")
-    if "validate" in joined_content or "validator" in paths:
-        capabilities.append("validates and sanitizes input data")
-    if "mapper" in paths or "intent" in paths:
-        capabilities.append("maps domain intents or rules into executable actions")
-    if "recon" in paths or "passive" in paths or "google" in paths:
-        capabilities.append("runs reconnaissance/data-collection style workflows")
-    if ".js" in paths or "static/" in paths or "frontend/" in paths:
-        capabilities.append("includes a browser-facing UI layer")
-    return list(dict.fromkeys(capabilities))
-
-
 def _entrypoints(parsed_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ranked: list[tuple[int, dict[str, Any]]] = []
     for item in parsed_files:
@@ -149,6 +130,8 @@ def _infer_purpose(parsed_files: list[dict[str, Any]]) -> str:
     hints = []
     for key, phrase in (
         ("review", "code review"),
+        ("doc", "documentation generation"),
+        ("readme", "README generation"),
         ("parser", "source parsing"),
         ("graph", "dependency visualization"),
         ("github", "GitHub automation"),
@@ -159,44 +142,10 @@ def _infer_purpose(parsed_files: list[dict[str, Any]]) -> str:
     ):
         if any(tok.startswith(key) for tok in tokens):
             hints.append(phrase)
-    runtime_hints = [h for h in hints if h != "dependency visualization"]
-    if not runtime_hints:
-        return "The repository coordinates domain modules to process inputs and produce actionable outputs."
-    joined = ", ".join(dict.fromkeys(runtime_hints))
+    if not hints:
+        return "The repository focuses on processing source files and producing derived developer outputs."
+    joined = ", ".join(dict.fromkeys(hints))
     return f"The system is built around {joined}, inferred from module names, symbols, and imports."
-
-
-def _rank_core_modules(parsed_files: list[dict[str, Any]], max_items: int = 5) -> list[dict[str, Any]]:
-    return sorted(
-        parsed_files,
-        key=lambda x: (
-            len(x.get("imports", [])) * 2 + len(x.get("functions", [])) + len(x.get("classes", [])),
-            x.get("line_count", 0),
-        ),
-        reverse=True,
-    )[:max_items]
-
-
-def _overview_narrative(understanding: dict[str, Any]) -> str:
-    entry = understanding["entrypoints"][0]["path"] if understanding["entrypoints"] else ""
-    core = _rank_core_modules(understanding["files"], max_items=4)
-    core_paths = [f"`{item['path']}`" for item in core]
-    module_part = ", ".join(core_paths) if core_paths else "detected modules"
-
-    steps = understanding["flow_steps"]
-    flow_hint = " -> ".join(step.replace("`", "") for step in steps[:4]) if steps else ""
-    capabilities = understanding.get("capabilities", [])
-    capability_text = ""
-    if capabilities:
-        capability_text = " Key behavior includes: " + "; ".join(capabilities[:4]) + "."
-    if entry and flow_hint:
-        return (
-            f"The primary runtime entry is `{entry}`. It coordinates core modules such as {module_part}. "
-            f"At runtime, the main flow is: {flow_hint}.{capability_text}"
-        )
-    if entry:
-        return f"The primary runtime entry is `{entry}`. It coordinates logic across {module_part}.{capability_text}"
-    return f"This codebase centers on {module_part}, with behavior inferred from imports, paths, and symbol relationships.{capability_text}"
 
 
 def _group_paths(paths: list[str]) -> dict[str, list[str]]:
@@ -209,20 +158,19 @@ def _group_paths(paths: list[str]) -> dict[str, list[str]]:
 
 def _module_role(item: dict[str, Any]) -> str:
     p = item["path"].lower()
-    base = PurePosixPath(p).name
     fn_count = len(item.get("functions", []))
     cls_count = len(item.get("classes", []))
     imports = " ".join(str(x).lower() for x in item.get("imports", []))
-    if base in {"main.py", "app.py", "server.py", "manage.py", "index.ts", "index.js"} or "fastapi" in imports or "flask" in imports:
+    if any(k in p for k in ("main", "app", "server", "cli")):
         return "Entry or orchestration module."
-    if p.startswith("frontend/") or p.startswith("static/") or p.endswith((".tsx", ".jsx")) or "react" in imports:
-        return "Frontend/UI module."
     if any(k in p for k in ("route", "controller", "api")):
         return "Request/response boundary module."
     if any(k in p for k in ("service", "agent", "orchestrator", "pipeline")):
         return "Processing/service logic."
     if any(k in p for k in ("parser", "loader", "ingest")):
         return "Ingestion/parsing module."
+    if "react" in imports or p.endswith((".tsx", ".jsx")):
+        return "UI component module."
     if cls_count > fn_count:
         return "Class-oriented domain logic."
     if fn_count:
@@ -255,7 +203,6 @@ def analyze_project(parsed_files: list[dict[str, Any]]) -> dict[str, Any]:
         "languages": languages,
         "project_types": _detect_project_types(files),
         "purpose": _infer_purpose(files),
-        "capabilities": _extract_capabilities(files),
         "groups": groups,
         "graph": graph,
         "entrypoints": entry,
@@ -264,43 +211,22 @@ def analyze_project(parsed_files: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _render_overview(understanding: dict[str, Any]) -> str:
+    file_count = len(understanding["files"])
     lang_line = ", ".join(f"{k}: {v}" for k, v in understanding["languages"].items()) or "unknown"
     project_types = ", ".join(understanding["project_types"])
-    narrative = _overview_narrative(understanding)
     return (
-        f"{narrative}\n\n"
         f"{understanding['purpose']}\n\n"
-        f"Project type: {project_types}\n"
-        f"Language profile: {lang_line}"
+        f"- Detected project type: {project_types}\n"
+        f"- Parsed source surface: {file_count} files\n"
+        f"- Language profile: {lang_line}"
     )
 
 
 def _render_architecture(understanding: dict[str, Any]) -> str:
-    steps: list[str] = understanding["flow_steps"]
+    steps = understanding["flow_steps"]
     if not steps:
         return ""
-    module_graph: dict[str, set[str]] = understanding["graph"]
-    hub_modules = sorted(module_graph.items(), key=lambda x: len(x[1]), reverse=True)[:4]
-    flow_lines = [f"{idx + 1}. {step}" for idx, step in enumerate(steps)]
-    if hub_modules:
-        flow_lines.append("")
-        flow_lines.append("Module interaction hotspots:")
-        for src, targets in hub_modules:
-            if not targets:
-                continue
-            sample = ", ".join(f"`{t}`" for t in sorted(targets)[:3])
-            flow_lines.append(f"- `{src}` imports/depends on {sample}")
-    return "\n".join(flow_lines)
-
-
-def _render_key_features(understanding: dict[str, Any]) -> str:
-    lines: list[str] = []
-    for item in _rank_core_modules(understanding["files"], max_items=6):
-        symbols = [str(f.get("name", "")) for f in item.get("functions", [])[:2] if f.get("name")]
-        if not symbols:
-            continue
-        lines.append(f"- `{item['path']}` implements `{', '.join(symbols)}`")
-    return "\n".join(lines[:6])
+    return "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(steps))
 
 
 def _render_structure(understanding: dict[str, Any]) -> str:
@@ -321,28 +247,18 @@ def _render_modules(understanding: dict[str, Any], max_items: int = 14) -> str:
     )[:max_items]
     lines: list[str] = []
     for item in ranked:
-        if item["path"].lower().endswith((".md", ".txt", ".json", ".yaml", ".yml")):
-            continue
         fns = [str(f.get("name")) for f in item.get("functions", [])[:3] if f.get("name")]
         cls = [str(c.get("name")) for c in item.get("classes", [])[:2] if c.get("name")]
         sym = ", ".join([*(f"`{x}`" for x in cls), *(f"`{x}()`" for x in fns)])
         extras = f" Key symbols: {sym}." if sym else ""
-        imports = ", ".join(item.get("imports", [])[:3]) if item.get("imports") else ""
-        import_note = f" Imports: {imports}." if imports else ""
-        lines.append(f"- **`{item['path']}`**: {_module_role(item)}{extras}{import_note}")
+        lines.append(f"- **`{item['path']}`**: {_module_role(item)}{extras}")
     return "\n".join(lines)
 
 
 def _usage_for_entry(entry: dict[str, Any]) -> str:
     path = entry["path"]
     lower = path.lower()
-    imports = " ".join(str(x).lower() for x in entry.get("imports", []))
     if lower.endswith(".py"):
-        module = PurePosixPath(path).stem
-        if "flask" in imports:
-            return f"```bash\nexport FLASK_APP={module}\nflask run\n```"
-        if "fastapi" in imports or "uvicorn" in imports:
-            return f"```bash\nuvicorn {module}:app --reload\n```"
         return f"```bash\npython {path}\n```"
     if lower.endswith(".js"):
         return f"```bash\nnode {path}\n```"
@@ -353,79 +269,6 @@ def _usage_for_entry(entry: dict[str, Any]) -> str:
     return ""
 
 
-def _render_getting_started(understanding: dict[str, Any]) -> str:
-    langs = understanding["languages"]
-    steps: list[str] = []
-    if "py" in langs:
-        steps.append("- Python 3.10+")
-        steps.append("- Install dependencies with `pip install -r requirements.txt` (if present)")
-    if "js" in langs or "ts" in langs or "tsx" in langs:
-        steps.append("- Node.js 18+")
-        steps.append("- Install dependencies with `npm install` (if `package.json` exists)")
-    if "v" in langs or "sv" in langs:
-        steps.append("- Verilog/SystemVerilog simulator or synthesis toolchain")
-    return "\n".join(steps)
-
-
-def _render_built_with(understanding: dict[str, Any]) -> str:
-    imports_joined = " ".join(
-        str(imp).lower()
-        for item in understanding["files"]
-        for imp in item.get("imports", [])
-    )
-    labels: list[str] = []
-    if "fastapi" in imports_joined:
-        labels.append("- FastAPI")
-    if "flask" in imports_joined:
-        labels.append("- Flask")
-    if "django" in imports_joined:
-        labels.append("- Django")
-    if "react" in imports_joined:
-        labels.append("- React")
-    if "next" in imports_joined:
-        labels.append("- Next.js")
-    if "pydantic" in imports_joined:
-        labels.append("- Pydantic")
-    langs = understanding["languages"]
-    if "py" in langs:
-        labels.append("- Python")
-    if "js" in langs:
-        labels.append("- JavaScript")
-    if "ts" in langs or "tsx" in langs:
-        labels.append("- TypeScript")
-    if "v" in langs or "sv" in langs:
-        labels.append("- Verilog/SystemVerilog")
-    deduped = list(dict.fromkeys(labels))
-    return "\n".join(deduped[:10])
-
-
-def _render_installation(understanding: dict[str, Any]) -> str:
-    langs = understanding["languages"]
-    lines: list[str] = ["```bash", "git clone <repo-url>", "cd <repo-folder>"]
-    if "py" in langs:
-        lines.append("pip install -r requirements.txt  # if present")
-    if "js" in langs or "ts" in langs or "tsx" in langs:
-        lines.append("npm install  # if package.json is present")
-    lines.append("```")
-    return "\n".join(lines)
-
-
-def _render_license(understanding: dict[str, Any]) -> str:
-    for item in understanding["files"]:
-        base = PurePosixPath(item["path"]).name.lower()
-        if base in {"license", "license.txt", "license.md", "copying"}:
-            return f"See `{item['path']}`."
-    return ""
-
-
-def _render_how_it_works(understanding: dict[str, Any]) -> str:
-    steps = understanding["flow_steps"]
-    if not steps:
-        return ""
-    normalized = [s.replace("entrypoint:", "entry") for s in steps]
-    return "\n".join(f"{idx + 1}. {step}" for idx, step in enumerate(normalized))
-
-
 def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_name: str = "") -> str:
     understanding = analyze_project(parsed_files)
     if not repo_name:
@@ -434,19 +277,7 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
 
     overview = _render_overview(understanding)
     if overview:
-        sections.append("## About The Project\n" + overview)
-
-    built_with = _render_built_with(understanding)
-    if built_with:
-        sections.append("### Built With\n" + built_with)
-
-    how_it_works = _render_how_it_works(understanding)
-    if how_it_works:
-        sections.append("## How It Works\n" + how_it_works)
-
-    key_features = _render_key_features(understanding)
-    if key_features:
-        sections.append("## Key Features\n" + key_features)
+        sections.append("## Overview\n" + overview)
 
     architecture = _render_architecture(understanding)
     if architecture:
@@ -458,29 +289,12 @@ def create_readme_from_understanding(parsed_files: list[dict[str, Any]], repo_na
 
     modules = _render_modules(understanding)
     if modules:
-        sections.append("## Module Responsibilities\n" + modules)
-
-    getting_started = _render_getting_started(understanding)
-    if getting_started:
-        sections.append("## Getting Started\n### Prerequisites\n" + getting_started)
-
-    installation = _render_installation(understanding)
-    if installation:
-        sections.append("### Installation\n" + installation)
+        sections.append("## Modules\n" + modules)
 
     if understanding["entrypoints"]:
         usage = _usage_for_entry(understanding["entrypoints"][0])
         if usage:
             sections.append("## Usage\n" + usage)
-
-    sections.append(
-        "## Contributing\n"
-        "Contributions should include focused changes, tests for behavior updates, and synced documentation."
-    )
-
-    license_section = _render_license(understanding)
-    if license_section:
-        sections.append("## License\n" + license_section)
 
     return "\n\n".join(sections).strip() + "\n"
 

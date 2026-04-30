@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from backend.services.nim_client import NIMClient
-from backend.services.persona import persona_style
 from backend.services.structure_service import StructureService
 from backend.utils.settings import settings
 from docs.graph_builder import build_dependency_graph, build_execution_flowchart, build_knowledge_graph
@@ -31,19 +29,12 @@ class DocumentationService:
         docstrings = self._generate_docstrings(parsed_files, persona)
         logger.info("Docs phase | generating_readme")
         readme = await self._generate_readme(parsed_files, persona, structure_context, repo_name=repo_name)
-        existing_readme = next((item.get("content", "") for item in parsed_files if item.get("path", "").lower().endswith("readme.md")), "")
 
         existing_docs = "\n\n".join(item["content"] for item in parsed_files if item["path"].endswith(".md"))
         doc_rot = detect_doc_rot(parsed_files, existing_docs)
         if doc_rot:
             logger.info("Docs phase | doc_rot_detected=true regenerating_readme")
             readme = await self._generate_readme(parsed_files, persona, structure_context, regenerate=True, repo_name=repo_name)
-        if not existing_readme.strip():
-            logger.info("README status | mode=new_generated")
-        elif existing_readme.strip() == readme.strip():
-            logger.info("README status | mode=unchanged_from_existing")
-        else:
-            logger.info("README status | mode=updated_from_existing")
 
         logger.info("Docs phase | building_modular_docs_and_graphs")
         modular_docs = self._build_modular_docs(parsed_files, persona)
@@ -95,85 +86,10 @@ class DocumentationService:
         regenerate: bool = False,
         repo_name: str = "",
     ) -> str:
-        base = create_readme_from_understanding(parsed_files, repo_name=repo_name)
-        if not self.nim.enabled:
-            logger.info("README generation source | source=deterministic_draft reason=nim_disabled")
-            return base
-
-        top_files = parsed_files[:36]
-        route_hits: list[str] = []
-        symbol_hits: list[str] = []
-        module_summaries: list[str] = []
-        for item in top_files:
-            path = item.get("path", "")
-            content = item.get("content", "")
-            module_summaries.append(
-                f"{path} | lang={item.get('language', '')} | functions={len(item.get('functions', []))} | classes={len(item.get('classes', []))} | imports={', '.join(item.get('imports', [])[:4]) or 'none'}"
-            )
-            for line in content.splitlines()[:300]:
-                stripped = line.strip()
-                if re.search(r"@app\.(route|get|post|put|patch|delete)\(", stripped):
-                    route_hits.append(f"{path}: {stripped}")
-            for fn in item.get("functions", [])[:4]:
-                name = str(fn.get("name", "")).strip()
-                if name:
-                    symbol_hits.append(f"{path}:{name}")
-
-        facts_block = "\n".join(
-            [
-                f"- files: {', '.join(item.get('path', '') for item in top_files[:20])}",
-                f"- symbols: {', '.join(symbol_hits[:28]) or 'none'}",
-                f"- route decorators: {', '.join(route_hits[:10]) or 'none'}",
-                f"- module summaries:\n  - " + "\n  - ".join(module_summaries[:18]),
-                f"- structure context: {structure_context}",
-            ]
-        )
-
-        # LLM-first generation with strict grounding constraints.
-        prompt = f"""
-Generate a polished repository README from the provided repo facts.
-Hard requirements:
-- Stay strictly grounded in provided code facts.
-- In the first 2 sentences, explain WHAT this project does for a user/operator.
-- Mention at least two concrete code references (function names, endpoints, or modules) in Overview or Key Features.
-- Keep all file paths repo-relative.
-- Do not add frameworks/tools not present.
-- Avoid generic filler text.
-- Keep sections concise and developer-focused.
-- If information is missing, omit that detail.
-- Output must be valid GitHub markdown only.
-
-Preferred section structure:
-1) About The Project
-2) Built With
-3) How It Works
-4) Key Features
-5) Project Structure
-6) Module Responsibilities
-7) Getting Started (Prerequisites + Installation)
-8) Usage
-9) Contributing
-10) License (only if detected)
-
-Persona: {persona_style(persona)}
-Regeneration reason: {"doc_rot" if regenerate else "normal"}
-Code facts:
-{facts_block}
-
-Fallback draft (use only if helpful):
-{base}
-""".strip()
-        generated = await self.nim.chat(
-            model=settings.nim_model_qwen_docs,
-            system_prompt="You are a senior engineer editing README text for accuracy and clarity. Never hallucinate.",
-            user_prompt=prompt,
-            temperature=0.1,
-        )
-        if generated and generated.strip():
-            logger.info("README generation source | source=llm_rewrite")
-            return generated
-        logger.info("README generation source | source=deterministic_draft reason=llm_empty")
-        return base
+        _ = persona
+        _ = structure_context
+        _ = regenerate
+        return create_readme_from_understanding(parsed_files, repo_name=repo_name)
 
     def _build_modular_docs(self, parsed_files: list[dict[str, Any]], persona: str) -> dict[str, str]:
         modules: dict[str, str] = {}

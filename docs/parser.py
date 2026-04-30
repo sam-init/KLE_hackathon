@@ -17,14 +17,6 @@ IMPORT_PATTERNS = {
     ".sv": re.compile(r"^\s*`include\s+\"([^\"]+)\"", re.MULTILINE),
     ".vh": re.compile(r"^\s*`include\s+\"([^\"]+)\"", re.MULTILINE),
     ".svh": re.compile(r"^\s*`include\s+\"([^\"]+)\"", re.MULTILINE),
-    ".html": re.compile(r"(?:<script[^>]*src=['\"]([^'\"]+)['\"]|<link[^>]*href=['\"]([^'\"]+)['\"])", re.IGNORECASE),
-    ".htm": re.compile(r"(?:<script[^>]*src=['\"]([^'\"]+)['\"]|<link[^>]*href=['\"]([^'\"]+)['\"])", re.IGNORECASE),
-    ".css": re.compile(r"@import\s+['\"]([^'\"]+)['\"]"),
-    ".scss": re.compile(r"@import\s+['\"]([^'\"]+)['\"]"),
-    ".sass": re.compile(r"@import\s+['\"]([^'\"]+)['\"]"),
-    ".less": re.compile(r"@import\s+['\"]([^'\"]+)['\"]"),
-    ".vue": re.compile(r"(?:import\s+.*?from\s+['\"]([^'\"]+)['\"]|require\(['\"]([^'\"]+)['\"]\))"),
-    ".svelte": re.compile(r"(?:import\s+.*?from\s+['\"]([^'\"]+)['\"]|require\(['\"]([^'\"]+)['\"]\))"),
 }
 
 

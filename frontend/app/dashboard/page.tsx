@@ -1,19 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import { DocsResults } from "@/components/DocsResults";
 import { ReviewResults } from "@/components/ReviewResults";
 import { GraphPanel } from "@/components/GraphPanel";
+import { GraphView } from "@/components/GraphView";
+import { TreeView } from "@/components/TreeView";
 import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip, verifyDocsToken } from "@/lib/api";
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
+import { toGraphData } from "@/utils/graphAdapter";
 
 const PERSONAS: Persona[] = ["Intern", "Student", "Frontend Developer", "Backend Developer"];
 const DEMO_REPO = "https://github.com/tiangolo/fastapi";
 
 type ResultTab = "review" | "docs" | "graphs";
 type InputMode = "repo" | "zip";
+type GraphDisplayMode = "classic" | "graph" | "tree";
 
 /* ───── Loading skeleton ─────────────────────────────────── */
 function LoadingSkeleton() {
@@ -68,6 +72,19 @@ export default function DashboardPage() {
 
   // Which result tab is active
   const [resultTab, setResultTab] = useState<ResultTab>("review");
+  const [graphDisplayMode, setGraphDisplayMode] = useState<GraphDisplayMode>("graph");
+  const [selectedGraphPath, setSelectedGraphPath] = useState<string | null>(null);
+  const graphData = useMemo(() => toGraphData(docsData?.dependency_graph), [docsData]);
+  const selectedGraphNode = useMemo(
+    () => graphData.nodes.find((node) => node.filePath === selectedGraphPath) ?? null,
+    [graphData.nodes, selectedGraphPath]
+  );
+  const graphNeighbors = useMemo(() => {
+    if (!selectedGraphNode) return [];
+    return graphData.links.filter(
+      (edge) => edge.source === selectedGraphNode.id || edge.target === selectedGraphNode.id
+    );
+  }, [graphData.links, selectedGraphNode]);
 
   async function run(mode: "repo" | "zip") {
     if (mode === "repo" && !repoUrl) {
@@ -403,9 +420,76 @@ export default function DashboardPage() {
                 {resultTab === "graphs" && (
                   docsData ? (
                     <div className="grid">
-                      <GraphPanel title="Dependency Graph"    graph={docsData.dependency_graph} />
-                      <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
-                      <GraphPanel title="Knowledge Graph"     graph={docsData.knowledge_graph} />
+                      <div className="graph-toggle">
+                        {(["graph", "tree", "classic"] as GraphDisplayMode[]).map((mode) => (
+                          <button
+                            key={mode}
+                            className={`btn btn-sm ${graphDisplayMode === mode ? "btn-primary" : "btn-secondary"}`}
+                            onClick={() => setGraphDisplayMode(mode)}
+                            style={{ textTransform: "capitalize" }}
+                          >
+                            {mode === "graph" ? "Graph View" : mode === "tree" ? "Tree View" : "Classic Panels"}
+                          </button>
+                        ))}
+                      </div>
+
+                      {graphDisplayMode === "graph" && (
+                        <div className="viz-layout">
+                          <div className="viz-pane">
+                            <TreeView
+                              graph={docsData.dependency_graph}
+                              selectedPath={selectedGraphPath}
+                              onNodeSelect={setSelectedGraphPath}
+                            />
+                          </div>
+                          <div className="viz-pane viz-pane-center">
+                            <GraphView
+                              graph={docsData.dependency_graph}
+                              selectedPath={selectedGraphPath}
+                              onNodeSelect={setSelectedGraphPath}
+                            />
+                          </div>
+                          <aside className="card viz-details">
+                            <h3 style={{ marginTop: 0, fontSize: 15 }}>Details</h3>
+                            {!selectedGraphNode ? (
+                              <p style={{ margin: 0, color: "var(--ink-2)", fontSize: 13 }}>
+                                Select a file from Tree View or Graph View to inspect its dependency links.
+                              </p>
+                            ) : (
+                              <div className="grid" style={{ gap: 10 }}>
+                                <div>
+                                  <div className="label" style={{ marginBottom: 2 }}>File</div>
+                                  <code>{selectedGraphNode.filePath}</code>
+                                </div>
+                                <div>
+                                  <div className="label" style={{ marginBottom: 2 }}>Node Type</div>
+                                  <div style={{ fontSize: 13 }}>{selectedGraphNode.kind}</div>
+                                </div>
+                                <div>
+                                  <div className="label" style={{ marginBottom: 2 }}>Connected Links</div>
+                                  <div style={{ fontSize: 13 }}>{graphNeighbors.length}</div>
+                                </div>
+                              </div>
+                            )}
+                          </aside>
+                        </div>
+                      )}
+
+                      {graphDisplayMode === "tree" && (
+                        <TreeView
+                          graph={docsData.dependency_graph}
+                          selectedPath={selectedGraphPath}
+                          onNodeSelect={setSelectedGraphPath}
+                        />
+                      )}
+
+                      {graphDisplayMode === "classic" && (
+                        <div className="grid">
+                          <GraphPanel title="Dependency Graph" graph={docsData.dependency_graph} />
+                          <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
+                          <GraphPanel title="Knowledge Graph" graph={docsData.knowledge_graph} />
+                        </div>
+                      )}
                     </div>
                   ) : <EmptyState tab="graphs" />
                 )}

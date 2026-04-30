@@ -61,14 +61,13 @@ Create a Render Web Service from this repo.
 Render settings:
 - Runtime: `Python`
 - Build Command: `pip install -r backend/requirements.txt`
-- Start Command: `gunicorn backend.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers ${WEB_CONCURRENCY:-1} --timeout ${GUNICORN_TIMEOUT:-180}`
+- Start Command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
 - Root Directory: repo root (leave blank)
 
 Environment variables on Render:
 - `CORS_ORIGINS=https://<your-frontend>.vercel.app`
 - `KEEP_WORKSPACES=false` (recommended; temporary repo snapshots are auto-cleaned)
 - `GITHUB_WEBHOOK_SECRET=<random-strong-secret>`
-- `REDIS_URL=<optional, enables shared job/result cache across workers>`
 - `GITHUB_APP_ID=<from GitHub App settings page>`
 - `GITHUB_PRIVATE_KEY=<contents of the .pem private key>`
 - `GITHUB_TOKEN=<optional fallback token, can be empty if App auth is configured>`

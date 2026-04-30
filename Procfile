@@ -1,1 +1,1 @@
-web: gunicorn backend.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --timeout ${GUNICORN_TIMEOUT:-180}
+web: uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}

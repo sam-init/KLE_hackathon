@@ -1,10 +1,39 @@
 import Link from "next/link";
 
+const FEATURES = [
+  {
+    icon: "🔍",
+    title: "Multi-Agent Code Review",
+    desc: "Six specialized AI agents inspect PRs for bugs, security, performance, readability, architecture, and accessibility issues — in parallel.",
+    color: "#e4b5ff",
+  },
+  {
+    icon: "📚",
+    title: "Documentation Generator",
+    desc: "Generate README files, docstrings, modular docs, onboarding guides, and interactive dependency graphs from your repository source code.",
+    color: "#dcbaf0",
+  },
+  {
+    icon: "🧩",
+    title: "Persona-Aware Output",
+    desc: "Adapt review tone and explanation depth for Interns, Students, Frontend Engineers, and Backend Engineers automatically.",
+    color: "#ab00ff",
+  },
+];
+
+const STATS = [
+  { dot: "#e4b5ff", label: "Code Review" },
+  { dot: "#56d364", label: "Docs Generator" },
+  { dot: "#dcbaf0", label: "Graph Visuals" },
+  { dot: "#ab00ff", label: "Persona-Aware" },
+];
+
 export default function HomePage() {
   return (
     <>
+      {/* ── Nav ── */}
       <nav className="nav">
-        <span className="nav-brand">⚡ DevPilot AI</span>
+        <span className="nav-brand">⚡ Voxr AI</span>
         <span className="nav-sep" />
         <Link href="/dashboard" className="btn btn-primary btn-sm">
           Open Dashboard →

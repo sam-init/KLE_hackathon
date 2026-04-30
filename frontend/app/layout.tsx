@@ -1,22 +1,20 @@
 import type { Metadata } from "next";
-import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-space-grotesk",
-});
-
 export const metadata: Metadata = {
-  title: "DevPilot AI – Multi-Agent Code Review & Documentation",
+  title: "Voxr AI PR Reviewer – Multi-Agent Code Review & Documentation",
   description:
-    "Ship better pull requests with AI-powered code review and automated documentation generation.",
+    "Ship better pull requests with AI-powered multi-agent code review, automated documentation generation, and persona-aware insights.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={spaceGrotesk.variable}>{children}</body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

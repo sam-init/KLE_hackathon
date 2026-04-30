@@ -5,11 +5,9 @@ import logging
 import re
 import time
 import uuid
-import hashlib
 from pathlib import Path
 from typing import Any
 
-import requests
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -33,11 +31,10 @@ from backend.services.ingestion import (
     ingest_zip_bytes,
 )
 from backend.services.review_service import ReviewService
-from backend.services.state_store import StateStore
 from backend.services.token_crypto import decrypt_token, encrypt_token
 from backend.utils.settings import settings
 from docs.parser import parse_repository
-from docs.repo_loader import TEXT_EXTENSIONS, iter_code_files
+from docs.repo_loader import iter_code_files
 from github.commenter import (
     format_inline_comments,
     post_pr_review,
@@ -70,7 +67,9 @@ app.add_middleware(
 rag_pipeline = RAGPipeline()
 review_service = ReviewService(rag_pipeline)
 doc_service = DocumentationService(rag_pipeline)
-state_store = StateStore()
+
+RUN_CACHE: dict[str, dict[str, Any]] = {}
+JOBS: dict[str, dict[str, Any]] = {}  # job_id → {status, message, result}
 
 
 @app.on_event("startup")
@@ -130,7 +129,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        cache_runs=0,
+        cache_runs=len(RUN_CACHE),
         rag_chunks=len(rag_pipeline.store.items),
     )
 
@@ -140,7 +139,7 @@ def health() -> HealthResponse:
 @app.get("/api/jobs/{job_id}", response_model=JobStatus)
 def get_job_status(job_id: str) -> JobStatus:
     """Poll this endpoint until status == 'done' or 'error'."""
-    job = state_store.get_job(job_id)
+    job = JOBS.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     return JobStatus(
@@ -157,14 +156,7 @@ def _parse_workspace(repo_root: Path) -> list[dict[str, Any]]:
     files = iter_code_files(repo_root)
     logger.info("Workspace scan complete | root=%s supported_files=%d", repo_root, len(files))
     if not files:
-        supported = ", ".join(sorted(TEXT_EXTENSIONS))
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "No supported source files found in repository. "
-                f"Supported extensions: {supported}"
-            ),
-        )
+        raise HTTPException(status_code=400, detail="No supported source files found in repository")
     parsed = parse_repository(files)
     for item in parsed:
         raw_path = item.get("path", "")
@@ -184,93 +176,23 @@ def _extract_repo_name(repo_url: str) -> str | None:
     return m.group(1).removesuffix(".git")
 
 
-def _build_result_cache_key(mode: str, repo_url: str, persona: str) -> str:
-    normalized = repo_url.strip().lower()
-    digest = hashlib.sha256(f"{mode}|{normalized}|{persona}".encode("utf-8")).hexdigest()
-    return f"{mode}:{digest}"
-
-
-def _is_pr_open(repo_full_name: str, pr_number: int, token: str) -> bool:
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        if resp.status_code >= 400:
-            logger.warning(
-                "PR state check failed for %s#%d: HTTP %d",
-                repo_full_name,
-                pr_number,
-                resp.status_code,
-            )
-            # Fail-open to avoid dropping comments during transient GH API issues.
-            return True
-        state = str(resp.json().get("state", "")).lower()
-        return state == "open"
-    except Exception as exc:
-        logger.warning("PR state check exception for %s#%d: %s", repo_full_name, pr_number, exc)
-        # Fail-open for resilience.
-        return True
-
-
-def _resolve_docs_token(encrypted_docs_token: str | None) -> str:
-    docs_token = settings.github_docs_token
-    if encrypted_docs_token:
-        try:
-            docs_token = decrypt_token(encrypted_docs_token)
-        except ValueError:
-            logger.warning("Invalid encrypted docs token payload")
-    return docs_token
-
-
-def _push_readme_if_available(
-    repo_full_name: str | None,
-    readme_content: str | None,
-    encrypted_docs_token: str | None,
-) -> None:
-    if not repo_full_name or not readme_content:
-        return
-    docs_token = _resolve_docs_token(encrypted_docs_token)
-    if not docs_token:
-        logger.warning("No docs token available — skipping README push to %s", repo_full_name)
-        return
-    pushed = push_readme_to_github(
-        repo_full_name=repo_full_name,
-        token=docs_token,
-        readme_content=readme_content,
-    )
-    logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
-
-
 # ── Background job workers ────────────────────────────────────────────────────
 
-async def _job_review(
-    job_id: str,
-    persona: str,
-    workspace: Path,
-    repo_root: Path,
-    result_cache_key: str | None = None,
-) -> None:
+async def _job_review(job_id: str, persona: str, workspace: Path, repo_root: Path) -> None:
     try:
         logger.info("Job started | type=review job_id=%s persona=%s", job_id, persona)
         parsed_files = _parse_workspace(repo_root)
-        state_store.set_job(job_id, {"status": "processing", "message": "Review processing started", "result": None})
+        JOBS[job_id] = {"status": "processing", "message": "Review processing started", "result": None}
         logger.info("Job phase | type=review job_id=%s phase=model_processing", job_id)
         result = await review_service.review(parsed_files, persona)
         run_id = str(uuid.uuid4())
         response = ReviewResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
-        response_payload = response.model_dump()
-        state_store.set_run(run_id, response_payload)
-        state_store.set_job(job_id, {"status": "done", "result": response_payload, "message": "Review complete"})
-        if result_cache_key:
-            state_store.set_result_cache(result_cache_key, response_payload)
+        RUN_CACHE[run_id] = response.model_dump()
+        JOBS[job_id] = {"status": "done", "result": response.model_dump(), "message": "Review complete"}
         logger.info("Job completed | type=review job_id=%s run_id=%s", job_id, run_id)
     except Exception as exc:
         logger.exception("Job %s (review) failed: %s", job_id, exc)
-        state_store.set_job(job_id, {"status": "error", "message": str(exc), "result": None})
+        JOBS[job_id] = {"status": "error", "message": str(exc), "result": None}
     finally:
         if not settings.keep_workspaces:
             cleanup_workspace(workspace)
@@ -283,28 +205,40 @@ async def _job_docs(
     repo_root: Path,
     repo_full_name: str | None = None,
     encrypted_docs_token: str | None = None,
-    result_cache_key: str | None = None,
 ) -> None:
     try:
         logger.info("Job started | type=docs job_id=%s persona=%s repo=%s", job_id, persona, repo_full_name or "upload")
         parsed_files = _parse_workspace(repo_root)
-        state_store.set_job(job_id, {"status": "processing", "message": "Docs processing started", "result": None})
+        JOBS[job_id] = {"status": "processing", "message": "Docs processing started", "result": None}
         logger.info("Job phase | type=docs job_id=%s phase=model_processing", job_id)
         result = await doc_service.generate(parsed_files, persona)
         run_id = str(uuid.uuid4())
         response = DocsResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
-        response_payload = response.model_dump()
-        state_store.set_run(run_id, response_payload)
-        state_store.set_job(job_id, {"status": "done", "result": response_payload, "message": "Docs generated"})
-        if result_cache_key:
-            state_store.set_result_cache(result_cache_key, response_payload)
+        RUN_CACHE[run_id] = response.model_dump()
+        JOBS[job_id] = {"status": "done", "result": response.model_dump(), "message": "Docs generated"}
         logger.info("Job completed | type=docs job_id=%s run_id=%s", job_id, run_id)
 
-        _push_readme_if_available(repo_full_name, result.get("readme"), encrypted_docs_token)
+        # Push README to GitHub using token priority:
+        # request-scoped encrypted PAT -> env GITHUB_DOCS_TOKEN
+        docs_token = settings.github_docs_token
+        if encrypted_docs_token:
+            try:
+                docs_token = decrypt_token(encrypted_docs_token)
+            except ValueError:
+                logger.warning("Invalid encrypted docs token payload for job %s", job_id)
+        if repo_full_name and result.get("readme") and docs_token:
+            pushed = push_readme_to_github(
+                repo_full_name=repo_full_name,
+                token=docs_token,
+                readme_content=result["readme"],
+            )
+            logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
+        elif repo_full_name and not settings.github_docs_token:
+            logger.warning("GITHUB_DOCS_TOKEN not set — skipping README push to %s", repo_full_name)
 
     except Exception as exc:
         logger.exception("Job %s (docs) failed: %s", job_id, exc)
-        state_store.set_job(job_id, {"status": "error", "message": str(exc), "result": None})
+        JOBS[job_id] = {"status": "error", "message": str(exc), "result": None}
     finally:
         if not settings.keep_workspaces:
             cleanup_workspace(workspace)
@@ -315,10 +249,6 @@ async def _job_docs(
 @app.post("/api/review/repo", response_model=JobStatus)
 def review_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatus:
     logger.info("API payload accepted | endpoint=/api/review/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
-    result_cache_key = _build_result_cache_key("review", payload.repo_url, payload.persona)
-    cached = state_store.get_result_cache(result_cache_key)
-    if cached:
-        return JobStatus(job_id="cached-review", status="done", message="Review served from cache", result=cached)
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)
@@ -326,8 +256,8 @@ def review_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobSta
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    state_store.set_job(job_id, {"status": "processing", "message": "Review queued", "result": None})
-    background_tasks.add_task(_job_review, job_id, payload.persona, workspace, repo_root, result_cache_key)
+    JOBS[job_id] = {"status": "processing", "message": "Review queued", "result": None}
+    background_tasks.add_task(_job_review, job_id, payload.persona, workspace, repo_root)
     logger.info("Job queued | type=review source=repo job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Review queued — poll /api/jobs/{job_id}")
 
@@ -347,7 +277,7 @@ async def review_upload(
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    state_store.set_job(job_id, {"status": "processing", "message": "Review queued", "result": None})
+    JOBS[job_id] = {"status": "processing", "message": "Review queued", "result": None}
     background_tasks.add_task(_job_review, job_id, persona, workspace, repo_root)
     logger.info("Job queued | type=review source=upload job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Review queued — poll /api/jobs/{job_id}")
@@ -358,18 +288,15 @@ async def review_upload(
 @app.post("/api/docs/repo", response_model=JobStatus)
 def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatus:
     logger.info("API payload accepted | endpoint=/api/docs/repo repo_url=%s persona=%s", payload.repo_url, payload.persona)
-    repo_full_name = _extract_repo_name(payload.repo_url)
-    # Always regenerate docs for repo runs so README quality updates are reflected immediately.
-    result_cache_key = None
-    logger.info("Docs cache mode | endpoint=/api/docs/repo mode=fresh_generation")
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)
     except IngestionError as exc:
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    repo_full_name = _extract_repo_name(payload.repo_url)
     job_id = str(uuid.uuid4())
-    state_store.set_job(job_id, {"status": "processing", "message": "Docs generation queued", "result": None})
+    JOBS[job_id] = {"status": "processing", "message": "Docs generation queued", "result": None}
     background_tasks.add_task(
         _job_docs,
         job_id,
@@ -378,7 +305,6 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
         repo_root,
         repo_full_name,
         payload.encrypted_docs_token,
-        result_cache_key,
     )
     logger.info("Job queued | type=docs source=repo job_id=%s repo=%s", job_id, repo_full_name or "unknown")
     msg = f"Docs queued — README will be pushed to {repo_full_name}" if repo_full_name else "Docs queued"
@@ -424,7 +350,7 @@ async def docs_upload(
         cleanup_workspace(workspace)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     job_id = str(uuid.uuid4())
-    state_store.set_job(job_id, {"status": "processing", "message": "Docs generation queued", "result": None})
+    JOBS[job_id] = {"status": "processing", "message": "Docs generation queued", "result": None}
     background_tasks.add_task(_job_docs, job_id, persona, workspace, repo_root)
     logger.info("Job queued | type=docs source=upload job_id=%s", job_id)
     return JobStatus(job_id=job_id, status="processing", message="Docs queued — poll /api/jobs/{job_id}")
@@ -455,17 +381,13 @@ async def _run_pr_review_background(
         logger.exception("PR review: review_service failed for %s#%d: %s", repo_name, pr_number, exc)
         return
 
-    if not _is_pr_open(repo_name, pr_number, settings.github_review_token):
-        logger.info("PR review skipped posting because PR is closed: %s#%d", repo_name, pr_number)
-        return
-
-    state_store.set_run(run_id, {
+    RUN_CACHE[run_id] = {
         "type": "github_pr_review",
         "repo": repo_name,
         "pr_number": pr_number,
         "review": result,
         "comments": format_inline_comments(result["findings"]),
-    })
+    }
 
     posted = post_pr_review(
         repo_full_name=repo_name,
@@ -485,7 +407,6 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
     event = request.headers.get("X-GitHub-Event", "")
-    logger.info("GitHub webhook received | event=%s", event)
 
     try:
         validate_github_signature(raw_body, settings.github_webhook_secret, signature)
@@ -497,26 +418,11 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    if event == "ping":
-        hook_id = payload.get("hook_id")
-        logger.info("GitHub webhook ping acknowledged | hook_id=%s", hook_id)
-        return WebhookAck(accepted=True, action="ping", message="Ping acknowledged")
-
     if event != "pull_request":
         return WebhookAck(accepted=True, action="ignored", message=f"Event {event!r} ignored")
 
     action = payload.get("action", "")
-    logger.info("GitHub webhook action | event=%s action=%s", event, action)
-    supported_actions = {"opened", "synchronize", "reopened", "edited", "ready_for_review"}
-    if action not in supported_actions:
-        pr = payload.get("pull_request", {}) or {}
-        repo = payload.get("repository", {}) or {}
-        logger.info(
-            "GitHub webhook ignored | unsupported action=%s repo=%s pr=%s",
-            action,
-            repo.get("full_name"),
-            pr.get("number"),
-        )
+    if action not in {"opened", "synchronize", "reopened"}:
         return WebhookAck(accepted=True, action="ignored", message=f"Action {action!r} ignored")
 
     pr = payload.get("pull_request", {})
@@ -526,7 +432,6 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     if not repo_name or not pr_number:
         raise HTTPException(status_code=400, detail="Invalid pull_request payload")
-    logger.info("GitHub webhook PR payload parsed | repo=%s pr=%s", repo_name, pr_number)
 
     if not settings.github_review_token:
         logger.warning("GITHUB_REVIEW_TOKEN not set — cannot post PR review for %s#%d", repo_name, pr_number)
@@ -534,7 +439,6 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     run_id = str(uuid.uuid4())
     background_tasks.add_task(_run_pr_review_background, repo_name, pr_number, run_id)
-    logger.info("GitHub webhook queued PR review | repo=%s pr=%s run_id=%s", repo_name, pr_number, run_id)
 
     return WebhookAck(
         accepted=True,
