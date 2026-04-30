@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import PurePosixPath
 from typing import Any
 
 
@@ -22,6 +23,35 @@ def build_repo_facts(parsed_files: list[dict[str, Any]]) -> dict[str, Any]:
         "function_count": total_functions,
         "class_count": total_classes,
     }
+
+
+def _normalize_repo_path(path: str) -> str:
+    clean = path.replace("\\", "/").strip()
+    if not clean:
+        return ""
+    # Strip absolute/system prefixes and keep only repo-relative tail.
+    markers = ["/src/", "/workspace/", "/tmp/", "/var/", "/opt/", "/home/"]
+    for marker in markers:
+        if marker in clean:
+            clean = clean.split(marker, 1)[-1]
+    return clean.lstrip("/")
+
+
+def _looks_like_system_path(path: str) -> bool:
+    lowered = path.lower()
+    return lowered.startswith(("/", "c:/", "d:/", "e:/")) or "/opt/render/" in lowered or "/tmp/" in lowered
+
+
+def _sanitize_files(parsed_files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in parsed_files:
+        path = _normalize_repo_path(str(item.get("path", "")))
+        if not path or _looks_like_system_path(path):
+            continue
+        clean = dict(item)
+        clean["path"] = path
+        out.append(clean)
+    return out
 
 
 def _module_role(item: dict[str, Any]) -> str:
@@ -58,6 +88,34 @@ def _module_map(parsed_files: list[dict[str, Any]], max_items: int = 10) -> str:
     return "\n".join(lines) or "- No modules detected."
 
 
+def _structure_tree(parsed_files: list[dict[str, Any]], max_lines: int = 36) -> str:
+    paths = sorted({_normalize_repo_path(item["path"]) for item in parsed_files if item.get("path")})
+    if not paths:
+        return "```text\n(no files parsed)\n```"
+
+    tree: dict[str, Any] = {}
+    for path in paths:
+        cursor = tree
+        parts = [p for p in PurePosixPath(path).parts if p]
+        for part in parts:
+            cursor = cursor.setdefault(part, {})
+
+    lines: list[str] = []
+
+    def walk(node: dict[str, Any], prefix: str = "") -> None:
+        keys = sorted(node.keys())
+        for i, name in enumerate(keys):
+            branch = "└── " if i == len(keys) - 1 else "├── "
+            lines.append(f"{prefix}{branch}{name}")
+            next_prefix = f"{prefix}{'    ' if i == len(keys) - 1 else '│   '}"
+            walk(node[name], next_prefix)
+
+    walk(tree)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines] + ["..."]
+    return "```text\n" + "\n".join(lines) + "\n```"
+
+
 def _entrypoint_candidates(parsed_files: list[dict[str, Any]], max_items: int = 6) -> str:
     candidates = []
     for item in parsed_files:
@@ -67,6 +125,124 @@ def _entrypoint_candidates(parsed_files: list[dict[str, Any]], max_items: int = 
     if not candidates:
         candidates = [item["path"] for item in parsed_files[:max_items]]
     return "\n".join(f"- `{path}`" for path in candidates[:max_items])
+
+
+def _entrypoint_paths(parsed_files: list[dict[str, Any]], max_items: int = 6) -> list[str]:
+    candidates: list[str] = []
+    for item in parsed_files:
+        path = item["path"].lower()
+        if any(name in path for name in ("main.py", "app.py", "server.py", "index.ts", "index.js")):
+            candidates.append(item["path"])
+    return candidates[:max_items]
+
+
+def _infer_overview(parsed_files: list[dict[str, Any]]) -> str:
+    files = [item["path"].lower() for item in parsed_files]
+    flags = {
+        "api": any(x in p for p in files for x in ("api", "route", "controller", "fastapi")),
+        "docs": any(x in p for p in files for x in ("doc", "readme", "parser")),
+        "review": any(x in p for p in files for x in ("review", "agent", "orchestrator")),
+        "frontend": any(x in p for p in files for x in ("frontend", ".tsx", ".jsx", "next")),
+        "rag": any("rag" in p for p in files),
+        "github": any("github" in p or "webhook" in p for p in files),
+    }
+    parts = []
+    if flags["api"]:
+        parts.append("provides a backend API for repository analysis workflows")
+    if flags["review"]:
+        parts.append("runs automated multi-agent code review passes")
+    if flags["docs"]:
+        parts.append("generates repository documentation from parsed source")
+    if flags["rag"]:
+        parts.append("uses retrieval indexing to ground analysis prompts")
+    if flags["github"]:
+        parts.append("integrates with GitHub webhooks and PR automation")
+    if flags["frontend"]:
+        parts.append("includes a dashboard UI for review and docs runs")
+    if not parts:
+        return "Codebase centers on parsing repository modules and generating developer-facing outputs from detected structure."
+    sentence = "; ".join(parts[:4])
+    return sentence[0].upper() + sentence[1:] + "."
+
+
+def _group_paths(parsed_files: list[dict[str, Any]]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {
+        "ingestion": [],
+        "reasoning": [],
+        "retrieval": [],
+        "api": [],
+        "frontend": [],
+        "integration": [],
+        "docs": [],
+        "other": [],
+    }
+    for item in parsed_files:
+        path = item["path"]
+        lower = path.lower()
+        if any(k in lower for k in ("ingest", "loader", "parser")):
+            groups["ingestion"].append(path)
+        elif any(k in lower for k in ("review", "agent", "orchestrator", "nim_client", "structure")):
+            groups["reasoning"].append(path)
+        elif "rag" in lower:
+            groups["retrieval"].append(path)
+        elif any(k in lower for k in ("backend/main.py", "/api", "routes", "controller")):
+            groups["api"].append(path)
+        elif lower.startswith("frontend/") or any(k in lower for k in (".tsx", ".jsx")):
+            groups["frontend"].append(path)
+        elif "github" in lower or "webhook" in lower:
+            groups["integration"].append(path)
+        elif "doc" in lower or lower.endswith(".md"):
+            groups["docs"].append(path)
+        else:
+            groups["other"].append(path)
+    return groups
+
+
+def _module_explanations(parsed_files: list[dict[str, Any]], max_items: int = 12) -> str:
+    ranked = sorted(
+        parsed_files,
+        key=lambda x: (len(x.get("imports", [])) + len(x.get("functions", [])) + len(x.get("classes", [])), x.get("line_count", 0)),
+        reverse=True,
+    )
+    lines: list[str] = []
+    for item in ranked[:max_items]:
+        path = item["path"]
+        imports = ", ".join(item.get("imports", [])[:4]) or "none"
+        fns = [f.get("name", "") for f in item.get("functions", [])[:3] if f.get("name")]
+        classes = [c.get("name", "") for c in item.get("classes", [])[:2] if c.get("name")]
+        symbols = ", ".join([*(f"`{c}`" for c in classes), *(f"`{f}()`" for f in fns)]) or "no detected symbols"
+        lines.append(f"- **`{path}`**: symbols {symbols}; imports {imports}.")
+    return "\n".join(lines) or "- No module relationships detected."
+
+
+def _usage_section(parsed_files: list[dict[str, Any]]) -> str:
+    entries = _entrypoint_paths(parsed_files)
+    if not entries:
+        return "_Usage section omitted because no clear entrypoint was detected from parsed files._"
+    lines = ["```bash"]
+    entry = entries[0]
+    if entry.endswith(".py"):
+        lines.append(f"python {entry}")
+    elif entry.endswith(".ts"):
+        lines.append(f"npx ts-node {entry}")
+    elif entry.endswith(".js"):
+        lines.append(f"node {entry}")
+    else:
+        lines.append(f"# Run using the toolchain for {entry}")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _architecture_section(parsed_files: list[dict[str, Any]]) -> str:
+    groups = _group_paths(parsed_files)
+    lines: list[str] = []
+    for name in ("api", "ingestion", "reasoning", "retrieval", "integration", "frontend", "docs"):
+        items = groups.get(name, [])
+        if not items:
+            continue
+        sample = ", ".join(f"`{p}`" for p in items[:3])
+        lines.append(f"- **{name}**: {sample}")
+    return "\n".join(lines) or "- No architectural relationships detected."
 
 
 def _change_map(parsed_files: list[dict[str, Any]]) -> str:
@@ -151,13 +327,13 @@ def _code_snippet(parsed_files: list[dict[str, Any]]) -> str:
 
 
 def create_readme_template(parsed_files: list[dict[str, Any]], persona: str, repo_name: str = "") -> str:
+    parsed_files = _sanitize_files(parsed_files)
     facts = build_repo_facts(parsed_files)
     lang_block = "\n".join(f"- **{k}**: {v} file(s)" for k, v in facts["languages"].items())
 
     # Use provided repo name or infer from file paths
-    if not repo_name and parsed_files:
-        path_parts = parsed_files[0]["path"].split("/")
-        repo_name = path_parts[0] if len(path_parts) > 1 else "This Repository"
+    if not repo_name:
+        repo_name = "Repository"
 
     snippet = _code_snippet(parsed_files)
     snippet_block = f"\n## Entrypoint Preview\n{snippet}\n" if snippet else ""
@@ -165,29 +341,29 @@ def create_readme_template(parsed_files: list[dict[str, Any]], persona: str, rep
     return f"""# {repo_name}
 
 ## Overview
-**{facts['file_count']} files** · **{facts['function_count']} functions** · **{facts['class_count']} classes**
+{_infer_overview(parsed_files)}
+
+Parsed surface: **{facts['file_count']} files** · **{facts['function_count']} functions** · **{facts['class_count']} classes**
 
 ## Tech Stack (detected from imports)
 {lang_block}
 {_tech_stack(parsed_files)}
 
-## Key Modules & Symbols
-{_key_symbols(parsed_files)}
+## Project Structure
+{_structure_tree(parsed_files)}
 
-## Repository Structure
-{_module_map(parsed_files)}
+## Modules
+{_module_explanations(parsed_files)}
 
 ## Entrypoints
 {_entrypoint_candidates(parsed_files)}
 {snippet_block}
-## Setup
-<!-- To be filled by AI based on detected stack -->
 
 ## Usage
-<!-- To be filled by AI based on actual API routes and functions -->
+{_usage_section(parsed_files)}
 
-## Architecture Notes
-<!-- To be filled by AI based on module map and import graph -->
+## Architecture
+{_architecture_section(parsed_files)}
 
 ## Change Guide
 {_change_map(parsed_files)}

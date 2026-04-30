@@ -116,12 +116,12 @@ class DocumentationService:
         PERSONA: {persona_style(persona)}
 
         TASK: Rewrite the template below into a polished, specific README.md.
-        - Replace ALL placeholder comments with real content based on the code facts above
         - Use the actual function and class names found in the code
-        - Write a real Setup section based on detected tech stack (languages/frameworks)
-        - Write a real Usage section referencing the actual entrypoint files and functions
-        - Write a real Architecture section describing how the modules interact
-        - Keep the Change Guide section
+        - Keep all paths repo-relative only
+        - Never include render/workspace/temp absolute paths
+        - If data is missing, omit that detail instead of fabricating
+        - Usage must only include runnable examples if entrypoints are explicit
+        - Architecture must describe only relationships inferable from imports and symbols
         - Output clean GitHub-flavored Markdown only — no extra commentary
 
         TEMPLATE TO REWRITE:

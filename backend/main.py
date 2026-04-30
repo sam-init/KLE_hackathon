@@ -150,6 +150,12 @@ def _parse_workspace(repo_root: Path) -> list[dict[str, Any]]:
     if not files:
         raise HTTPException(status_code=400, detail="No supported source files found in repository")
     parsed = parse_repository(files)
+    for item in parsed:
+        raw_path = item.get("path", "")
+        try:
+            item["path"] = Path(raw_path).resolve().relative_to(repo_root.resolve()).as_posix()
+        except Exception:
+            item["path"] = Path(raw_path).name
     logger.info("Repository parse complete | parsed_files=%d", len(parsed))
     return parsed
 
@@ -322,7 +328,7 @@ async def _run_pr_review_background(
         return
 
     try:
-        result = await review_service.review(parsed_files, persona="Backend Developer")
+        result = await review_service.review_pr_fast(parsed_files, persona="Backend Developer")
     except Exception as exc:
         logger.exception("PR review: review_service failed for %s#%d: %s", repo_name, pr_number, exc)
         return
