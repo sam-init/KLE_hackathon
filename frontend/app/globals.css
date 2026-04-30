@@ -768,7 +768,6 @@ details .detail-body {
   overflow: hidden;
   margin-bottom: 10px;
 }
-
 .file-group-header {
   display: flex;
   align-items: center;
@@ -877,7 +876,6 @@ details .detail-body {
   border-radius: var(--radius-sm);
   margin-bottom: 16px;
 }
-
 .summary-stat {
   display: flex;
   flex-direction: column;

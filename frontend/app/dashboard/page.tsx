@@ -150,7 +150,6 @@ export default function DashboardPage() {
       setError("Please select a ZIP file.");
       return;
     }
-
     setLoading(true);
     setError(null);
     setSuccess(null);
@@ -215,7 +214,6 @@ export default function DashboardPage() {
     setError(null);
     setTokenStatus(null);
     setVerifyingToken(true);
-
     try {
       const result = await verifyDocsToken(repoUrl, docsPat.trim());
       if (!result.valid || !result.encrypted_token) {

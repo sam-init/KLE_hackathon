@@ -205,7 +205,10 @@ async def _job_docs(
     repo_root: Path,
     repo_full_name: str | None = None,
     encrypted_docs_token: str | None = None,
+<<<<<<< HEAD
     docs_token: str | None = None,
+=======
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
 ) -> None:
     try:
         logger.info("Job started | type=docs job_id=%s persona=%s repo=%s", job_id, persona, repo_full_name or "upload")
@@ -221,6 +224,7 @@ async def _job_docs(
 
         # Push README to GitHub using token priority:
         # request-scoped encrypted PAT -> env GITHUB_DOCS_TOKEN
+<<<<<<< HEAD
         resolved_docs_token = docs_token or settings.github_docs_token
         if encrypted_docs_token:
             try:
@@ -231,6 +235,18 @@ async def _job_docs(
             pushed = push_readme_to_github(
                 repo_full_name=repo_full_name,
                 token=resolved_docs_token,
+=======
+        docs_token = settings.github_docs_token
+        if encrypted_docs_token:
+            try:
+                docs_token = decrypt_token(encrypted_docs_token)
+            except ValueError:
+                logger.warning("Invalid encrypted docs token payload for job %s", job_id)
+        if repo_full_name and result.get("readme") and docs_token:
+            pushed = push_readme_to_github(
+                repo_full_name=repo_full_name,
+                token=docs_token,
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
                 readme_content=result["readme"],
             )
             logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
@@ -306,7 +322,10 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
         repo_root,
         repo_full_name,
         payload.encrypted_docs_token,
+<<<<<<< HEAD
         payload.docs_token,
+=======
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
     )
     logger.info("Job queued | type=docs source=repo job_id=%s repo=%s", job_id, repo_full_name or "unknown")
     msg = f"Docs queued — README will be pushed to {repo_full_name}" if repo_full_name else "Docs queued"

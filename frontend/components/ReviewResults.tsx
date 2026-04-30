@@ -157,7 +157,11 @@ export function ReviewResults({ data }: { data: ReviewResponse }) {
             gap: 8,
           }}
         >
+<<<<<<< HEAD
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Review Summary</h3>
+=======
+          <h3 style={{ margin: 0, fontSize: 15 }}>Review Summary</h3>
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
           <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
             Persona: <strong style={{ color: "var(--ink)" }}>{data.persona}</strong>
             {" "}·{" "}
@@ -171,9 +175,14 @@ export function ReviewResults({ data }: { data: ReviewResponse }) {
               margin: 0,
               fontSize: 13,
               color: "var(--ink-2)",
+<<<<<<< HEAD
               lineHeight: 1.8,
               whiteSpace: "pre-wrap",
               padding: "10px 0",
+=======
+              lineHeight: 1.7,
+              whiteSpace: "pre-wrap",
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
             }}
           >
             {data.summary}
@@ -183,6 +192,7 @@ export function ReviewResults({ data }: { data: ReviewResponse }) {
 
       {/* Findings grouped by file */}
       {data.findings.length === 0 ? (
+<<<<<<< HEAD
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
           <h3 style={{ margin: "0 0 6px", color: "var(--success)" }}>No findings!</h3>
@@ -200,6 +210,17 @@ export function ReviewResults({ data }: { data: ReviewResponse }) {
             <span style={{ fontSize: 12, fontWeight: 400, color: "var(--ink-2)", marginLeft: 8 }}>
               grouped by file
             </span>
+=======
+        <div className="card" style={{ textAlign: "center", padding: 40, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
+          <h3 style={{ margin: "0 0 6px", color: "var(--success)" }}>No findings!</h3>
+          <p style={{ margin: 0, fontSize: 14 }}>No high-confidence issues were detected.</p>
+        </div>
+      ) : (
+        <div className="card">
+          <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>
+            Inline Findings — grouped by file
+>>>>>>> 833e8c7d59351fa6e21b02e3af86177d34a2f2c4
           </h3>
           {files.map((f) => (
             <FileGroup key={f} filename={f} findings={byFile[f]} />
