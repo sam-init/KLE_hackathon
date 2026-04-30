@@ -8,9 +8,14 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "DevPilot AI – Multi-Agent Code Review & Documentation",
+  title: "Cypher AI",
   description:
     "Ship better pull requests with AI-powered code review and automated documentation generation.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
