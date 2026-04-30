@@ -177,7 +177,16 @@ export default function DashboardPage() {
 
       {/* ── Nav ── */}
       <nav className="nav">
-        <Link href="/" className="nav-brand">⚡ DevPilot AI</Link>
+        <Link href="/" className="nav-brand">
+  <img
+    src="/icon.svg"
+    alt="Cypher AI logo"
+    width={18}
+    height={18}
+    style={{ display: "block", marginRight: 8 }}
+  />
+  Cypher<span className="nav-brand-dim">AI</span>
+</Link>
         <span style={{ color: "var(--border)", fontSize: 18 }}>/</span>
         <span style={{ color: "var(--ink-2)", fontSize: 14 }}>Dashboard</span>
         <span className="nav-sep" />
@@ -442,3 +451,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

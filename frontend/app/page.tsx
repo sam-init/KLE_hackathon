@@ -212,12 +212,20 @@ export default function HomePage() {
         borderBottom: `1px solid ${C.border}`
       }}>
         <span style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
           fontWeight: 800, fontSize: 18, letterSpacing: ".04em",
           fontFamily: "'JetBrains Mono',monospace",
           color: C.mint,
           textShadow: `0 0 16px ${C.mint}88`
         }}>
-          &gt;_ Cypher<span style={{ color: C.muted }}>AI</span>
+          <img
+            src="/icon.svg"
+            alt="Cypher AI logo"
+            width={18}
+            height={18}
+            style={{ display: "block" }}
+          />
+          Cypher<span style={{ color: C.muted }}>AI</span>
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
