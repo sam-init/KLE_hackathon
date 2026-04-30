@@ -120,19 +120,26 @@ export async function reviewFromZip(
 export async function docsFromRepo(
   repoUrl: string,
   persona: Persona,
-  encryptedDocsTokenOrProgress?: string | ((msg: string) => void),
+  tokenOrProgress?:
+    | { encryptedDocsToken?: string; rawDocsToken?: string }
+    | ((msg: string) => void),
   onProgress?: (msg: string) => void
 ): Promise<DocsResponse> {
-  const encryptedDocsToken =
-    typeof encryptedDocsTokenOrProgress === "string" ? encryptedDocsTokenOrProgress : undefined;
+  const tokenBundle = typeof tokenOrProgress === "object" && tokenOrProgress !== null ? tokenOrProgress : undefined;
   const progressCb =
-    typeof encryptedDocsTokenOrProgress === "function" ? encryptedDocsTokenOrProgress : onProgress;
+    typeof tokenOrProgress === "function" ? tokenOrProgress : onProgress;
 
-  const payload: { repo_url: string; persona: Persona; encrypted_docs_token?: string } = {
+  const payload: {
+    repo_url: string;
+    persona: Persona;
+    encrypted_docs_token?: string;
+    docs_token?: string;
+  } = {
     repo_url: repoUrl,
     persona,
   };
-  if (encryptedDocsToken) payload.encrypted_docs_token = encryptedDocsToken;
+  if (tokenBundle?.encryptedDocsToken) payload.encrypted_docs_token = tokenBundle.encryptedDocsToken;
+  if (tokenBundle?.rawDocsToken) payload.docs_token = tokenBundle.rawDocsToken;
 
   return submitAndPoll<DocsResponse>(
     () =>
@@ -155,6 +162,45 @@ export async function verifyDocsToken(
     body: JSON.stringify({ repo_url: repoUrl, token }),
   });
   return handleResponse<TokenVerifyResponse>(res);
+}
+
+export async function verifyDocsTokenDirect(repoUrl: string, token: string): Promise<TokenVerifyResponse> {
+  const match = repoUrl.match(/github\.com[:/]([\w.-]+\/[\w.-]+)/i);
+  if (!match) {
+    return { valid: false, message: "Invalid GitHub repository URL." };
+  }
+  const repoFullName = match[1].replace(/\.git$/, "");
+  const res = await fetch(`https://api.github.com/repos/${repoFullName}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+  if (!res.ok) {
+    return {
+      valid: false,
+      repo_full_name: repoFullName,
+      message: `Token validation failed (HTTP ${res.status}).`,
+    };
+  }
+  const data = await res.json();
+  const canPush = Boolean(data?.permissions?.push);
+  if (!canPush) {
+    return {
+      valid: false,
+      repo_full_name: repoFullName,
+      default_branch: data?.default_branch ?? null,
+      message: "Token lacks push permission. Grant Contents: Read and write.",
+    };
+  }
+  return {
+    valid: true,
+    repo_full_name: repoFullName,
+    default_branch: data?.default_branch ?? null,
+    encrypted_token: null,
+    message: "Token validated via GitHub API (client-side fallback).",
+  };
 }
 
 export async function docsFromZip(

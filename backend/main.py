@@ -205,6 +205,7 @@ async def _job_docs(
     repo_root: Path,
     repo_full_name: str | None = None,
     encrypted_docs_token: str | None = None,
+    docs_token: str | None = None,
 ) -> None:
     try:
         logger.info("Job started | type=docs job_id=%s persona=%s repo=%s", job_id, persona, repo_full_name or "upload")
@@ -220,16 +221,16 @@ async def _job_docs(
 
         # Push README to GitHub using token priority:
         # request-scoped encrypted PAT -> env GITHUB_DOCS_TOKEN
-        docs_token = settings.github_docs_token
+        resolved_docs_token = docs_token or settings.github_docs_token
         if encrypted_docs_token:
             try:
-                docs_token = decrypt_token(encrypted_docs_token)
+                resolved_docs_token = decrypt_token(encrypted_docs_token)
             except ValueError:
                 logger.warning("Invalid encrypted docs token payload for job %s", job_id)
-        if repo_full_name and result.get("readme") and docs_token:
+        if repo_full_name and result.get("readme") and resolved_docs_token:
             pushed = push_readme_to_github(
                 repo_full_name=repo_full_name,
-                token=docs_token,
+                token=resolved_docs_token,
                 readme_content=result["readme"],
             )
             logger.info("README push to %s: %s", repo_full_name, "OK" if pushed else "failed")
@@ -305,6 +306,7 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
         repo_root,
         repo_full_name,
         payload.encrypted_docs_token,
+        payload.docs_token,
     )
     logger.info("Job queued | type=docs source=repo job_id=%s repo=%s", job_id, repo_full_name or "unknown")
     msg = f"Docs queued — README will be pushed to {repo_full_name}" if repo_full_name else "Docs queued"

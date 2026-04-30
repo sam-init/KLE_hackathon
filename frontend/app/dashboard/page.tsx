@@ -9,7 +9,14 @@ import { ReviewResults } from "@/components/ReviewResults";
 import { GraphPanel } from "@/components/GraphPanel";
 import { GraphView } from "@/components/GraphView";
 import { TreeView } from "@/components/TreeView";
-import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip, verifyDocsToken } from "@/lib/api";
+import {
+  docsFromRepo,
+  docsFromZip,
+  reviewFromRepo,
+  reviewFromZip,
+  verifyDocsToken,
+  verifyDocsTokenDirect,
+} from "@/lib/api";
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
 import { toGraphData } from "@/utils/graphAdapter";
 
@@ -68,6 +75,7 @@ export default function DashboardPage() {
   const [success, setSuccess]       = useState<string | null>(null);
   const [docsPat, setDocsPat] = useState("");
   const [encryptedDocsToken, setEncryptedDocsToken] = useState<string | null>(null);
+  const [rawDocsToken, setRawDocsToken] = useState<string | null>(null);
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [verifyingToken, setVerifyingToken] = useState(false);
 
@@ -112,14 +120,20 @@ export default function DashboardPage() {
           setSuccess(`Review complete — ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
         } else {
           const data = mode === "repo"
-            ? await docsFromRepo(repoUrl, persona, encryptedDocsToken ?? undefined)
+            ? await docsFromRepo(repoUrl, persona, {
+                encryptedDocsToken: encryptedDocsToken ?? undefined,
+                rawDocsToken: rawDocsToken ?? undefined,
+              })
             : await docsFromZip(file!, persona);
           setDocsData(data);
           setSuccess("Graphs generated successfully.");
         }
       } else {
         const data = mode === "repo"
-          ? await docsFromRepo(repoUrl, persona, encryptedDocsToken ?? undefined)
+          ? await docsFromRepo(repoUrl, persona, {
+              encryptedDocsToken: encryptedDocsToken ?? undefined,
+              rawDocsToken: rawDocsToken ?? undefined,
+            })
           : await docsFromZip(file!, persona);
         setDocsData(data);
         setSuccess("Documentation generated successfully.");
@@ -150,17 +164,36 @@ export default function DashboardPage() {
       const result = await verifyDocsToken(repoUrl, docsPat.trim());
       if (!result.valid || !result.encrypted_token) {
         setEncryptedDocsToken(null);
+        setRawDocsToken(null);
         setTokenStatus(result.message || "Token verification failed.");
         return;
       }
       setEncryptedDocsToken(result.encrypted_token);
+      setRawDocsToken(null);
       setTokenStatus(
         `PAT verified for ${result.repo_full_name ?? "repo"}${result.default_branch ? ` (default branch: ${result.default_branch})` : ""}.`
       );
       setDocsPat("");
     } catch (err) {
       setEncryptedDocsToken(null);
-      setTokenStatus(err instanceof Error ? err.message : "Token verification failed.");
+      const msg = err instanceof Error ? err.message : "Token verification failed.";
+      const lower = msg.toLowerCase();
+      if (lower.includes("http 404") || lower.includes("not found") || lower.includes("endpoint")) {
+        const fallback = await verifyDocsTokenDirect(repoUrl, docsPat.trim());
+        if (fallback.valid) {
+          setRawDocsToken(docsPat.trim());
+          setTokenStatus(
+            `PAT verified client-side for ${fallback.repo_full_name ?? "repo"}${fallback.default_branch ? ` (default branch: ${fallback.default_branch})` : ""}.`
+          );
+          setDocsPat("");
+        } else {
+          setRawDocsToken(null);
+          setTokenStatus(fallback.message || "Token verification failed.");
+        }
+      } else {
+        setRawDocsToken(null);
+        setTokenStatus(msg);
+      }
     } finally {
       setVerifyingToken(false);
     }
