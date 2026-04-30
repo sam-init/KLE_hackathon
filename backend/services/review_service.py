@@ -49,6 +49,44 @@ class ReviewService:
             },
         }
 
+    async def review_pr_fast(self, parsed_files: list[dict[str, Any]], persona: str) -> dict[str, Any]:
+        """
+        Fast PR review path:
+        - deterministic agents
+        - one LLM call that returns both findings + summary
+        """
+        logger.info("PR fast review started | files=%d persona=%s", len(parsed_files), persona)
+        index_stats = self.rag.index_repository(parsed_files)
+        structure_context = await self.structure.derive(parsed_files)
+
+        findings = self.orchestrator.run(parsed_files, persona)
+        llm_pack = await self._single_pass_pr_review(parsed_files, persona, structure_context)
+        if llm_pack:
+            findings.extend(self._coerce_findings(llm_pack.get("findings", []), fallback_agent="PR Fast LLM"))
+
+        findings = self._dedupe_findings(findings)
+        findings = self._apply_persona(findings, persona)
+
+        summary = ""
+        if llm_pack and isinstance(llm_pack.get("summary"), str):
+            summary = llm_pack["summary"].strip()
+        if not summary:
+            summary = self._fallback_summary(findings)
+
+        logger.info("PR fast review completed | findings=%d persona=%s", len(findings), persona)
+        return {
+            "findings": [f.__dict__ for f in findings],
+            "summary": summary,
+            "reviewed_files": [item["path"] for item in parsed_files],
+            "metadata": {
+                "rag": index_stats,
+                "agent_count": len(self.orchestrator.agents),
+                "nim_enabled": self.nim.enabled,
+                "structure": structure_context,
+                "mode": "pr_fast_single_call",
+            },
+        }
+
     async def _summarize_findings(self, findings: list[Any], persona: str, structure_context: dict[str, Any]) -> str:
         if not findings:
             return "No high-confidence issues were detected. The current changes appear stable under configured review checks."
@@ -123,6 +161,62 @@ Code input:
 
         return all_findings
 
+    async def _single_pass_pr_review(
+        self,
+        parsed_files: list[dict[str, Any]],
+        persona: str,
+        structure_context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not self.nim.enabled:
+            return None
+
+        # Keep payload bounded for low latency.
+        sample = self._build_sample(parsed_files, focus_name="PR Fast")
+        sample = sample[:6]
+        compact_sample = [{"path": s["path"], "snippet": s["snippet"][:1800]} for s in sample]
+
+        prompt = f"""
+Persona: {persona}
+Return STRICT JSON object only with this exact shape:
+{{
+  "summary": "short actionable review summary",
+  "findings": [
+    {{
+      "file": "path/to/file",
+      "line": 1,
+      "issue_title": "title",
+      "explanation": "max 3 sentences",
+      "severity": "low|medium|high|critical",
+      "fix_suggestion": "concrete fix",
+      "confidence": 0.0,
+      "agent": "PR Fast LLM"
+    }}
+  ]
+}}
+
+Rules:
+- Report only concrete issues visible in provided code.
+- confidence must be >= 0.75.
+- Keep findings high signal; max 12 findings.
+- If no clear issues, return empty findings and a brief summary.
+
+Structure context:
+{json.dumps(structure_context)}
+
+Code input:
+{json.dumps(compact_sample)}
+""".strip()
+
+        out = await self.nim.chat(
+            model=settings.nim_model_qwen_review,
+            system_prompt="You are a senior code reviewer. Return strict JSON object only.",
+            user_prompt=prompt,
+            temperature=0.0,
+        )
+        if not out:
+            return None
+        return self._parse_json_object(out)
+
     def _coerce_findings(self, parsed: list[dict[str, Any]], fallback_agent: str) -> list[AgentFinding]:
         findings: list[AgentFinding] = []
         for item in parsed:
@@ -191,6 +285,34 @@ Code input:
             return parsed if isinstance(parsed, list) else []
         except json.JSONDecodeError:
             return []
+
+    def _parse_json_object(self, text: str) -> dict[str, Any] | None:
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:].strip()
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        try:
+            parsed = json.loads(cleaned[start : end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    def _fallback_summary(self, findings: list[AgentFinding]) -> str:
+        if not findings:
+            return "No high-confidence issues detected in this PR diff."
+        top = findings[:5]
+        bullet_lines = "\n".join(
+            f"- [{item.severity.upper()}] {item.issue_title} in {item.file}:{item.line}" for item in top
+        )
+        return (
+            "Fast PR review completed. Prioritize critical/high items first:\n"
+            f"{bullet_lines}"
+        )
 
     def _dedupe_findings(self, findings: list[Any]) -> list[Any]:
         seen = set()

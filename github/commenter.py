@@ -156,12 +156,33 @@ def push_readme_to_github(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
+    # Resolve default branch up-front so repos without "main" still work.
+    try:
+        repo_url = f"{GITHUB_API}/repos/{repo_full_name}"
+        repo_resp = requests.get(repo_url, headers=headers, timeout=15)
+        if repo_resp.status_code == 200:
+            default_branch = repo_resp.json().get("default_branch")
+            if isinstance(default_branch, str) and default_branch.strip():
+                branch = default_branch.strip()
+        else:
+            logger.warning(
+                "Could not resolve default branch for %s: HTTP %d",
+                repo_full_name,
+                repo_resp.status_code,
+            )
+    except Exception as exc:
+        logger.warning("Exception resolving default branch for %s: %s", repo_full_name, exc)
+
     encoded = base64.b64encode(readme_content.encode("utf-8")).decode("ascii")
     url = f"{GITHUB_API}/repos/{repo_full_name}/contents/{path}"
 
     # Try to get the current file SHA (needed if file already exists)
     current_sha: str | None = None
-    for attempt_branch in [branch, "master"]:
+    candidate_branches: list[str] = []
+    for candidate in [branch, "main", "master"]:
+        if candidate not in candidate_branches:
+            candidate_branches.append(candidate)
+    for attempt_branch in candidate_branches:
         try:
             r = requests.get(url, headers=headers, params={"ref": attempt_branch}, timeout=15)
             if r.status_code == 200:
