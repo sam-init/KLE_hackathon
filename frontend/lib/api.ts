@@ -26,7 +26,6 @@ function normalizeErrorMessage(raw: string): string {
   return msg || "Request failed";
 }
 
-/* ─── Response handler ─────────────────────────────────── */
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `Request failed (HTTP ${res.status})`;
@@ -40,14 +39,13 @@ async function handleResponse<T>(res: Response): Promise<T> {
         if (text) message = text;
       }
     } catch {
-      /* ignore parse errors */
+      // ignore parse errors
     }
     throw new Error(normalizeErrorMessage(message));
   }
   return res.json() as Promise<T>;
 }
 
-/* ─── Job polling ──────────────────────────────────────── */
 interface JobStatus {
   job_id: string;
   status: "queued" | "processing" | "done" | "error";
@@ -55,10 +53,6 @@ interface JobStatus {
   result: unknown | null;
 }
 
-/**
- * Submit a job (POST) then poll GET /api/jobs/{job_id} until done.
- * No fixed timeout — keeps polling until the job finishes or errors.
- */
 async function submitAndPoll<T>(
   submitFn: () => Promise<Response>,
   onProgress?: (msg: string) => void
@@ -73,14 +67,12 @@ async function submitAndPoll<T>(
     throw new Error(normalizeErrorMessage(job.message || "Job failed"));
   }
 
-  // Poll until done
   const POLL_INTERVAL_MS = 3000;
-  const job_id = job.job_id;
+  const jobId = job.job_id;
 
   while (true) {
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-    const pollRes = await fetch(`${API_BASE}/api/jobs/${job_id}`);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    const pollRes = await fetch(`${API_BASE}/api/jobs/${jobId}`);
     const status: JobStatus = await handleResponse<JobStatus>(pollRes);
 
     if (onProgress) onProgress(status.message || status.status);
@@ -91,11 +83,9 @@ async function submitAndPoll<T>(
     if (status.status === "error") {
       throw new Error(normalizeErrorMessage(status.message || "Job failed"));
     }
-    // still "processing" or "queued" — keep polling
   }
 }
 
-/* ─── Review endpoints ─────────────────────────────────── */
 export async function reviewFromRepo(
   repoUrl: string,
   persona: Persona,
@@ -127,7 +117,6 @@ export async function reviewFromZip(
   );
 }
 
-/* ─── Docs endpoints ───────────────────────────────────── */
 export async function docsFromRepo(
   repoUrl: string,
   persona: Persona,
@@ -139,7 +128,10 @@ export async function docsFromRepo(
   const progressCb =
     typeof encryptedDocsTokenOrProgress === "function" ? encryptedDocsTokenOrProgress : onProgress;
 
-  const payload: Record<string, string> = { repo_url: repoUrl, persona };
+  const payload: { repo_url: string; persona: Persona; encrypted_docs_token?: string } = {
+    repo_url: repoUrl,
+    persona,
+  };
   if (encryptedDocsToken) payload.encrypted_docs_token = encryptedDocsToken;
 
   return submitAndPoll<DocsResponse>(
@@ -147,13 +139,16 @@ export async function docsFromRepo(
       fetch(`${API_BASE}/api/docs/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_url: repoUrl, persona }),
+        body: JSON.stringify(payload),
       }),
     progressCb
   );
 }
 
-export async function verifyDocsToken(repoUrl: string, token: string): Promise<TokenVerifyResponse> {
+export async function verifyDocsToken(
+  repoUrl: string,
+  token: string
+): Promise<TokenVerifyResponse> {
   const res = await fetch(`${API_BASE}/api/github/verify-docs-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -175,41 +170,4 @@ export async function docsFromZip(
     () => fetch(`${API_BASE}/api/docs/upload`, { method: "POST", body: fd }),
     onProgress
   );
-}
-
-export interface VerifyDocsTokenResponse {
-  valid: boolean;
-  message?: string;
-  encrypted_token?: string | null;
-  repo_full_name?: string | null;
-  default_branch?: string | null;
-}
-
-/**
- * Verify user-provided docs PAT and return an encrypted token if backend supports it.
- * If endpoint is unavailable, return a user-friendly response instead of throwing.
- */
-export async function verifyDocsToken(
-  repoUrl: string,
-  patToken: string
-): Promise<VerifyDocsTokenResponse> {
-  const res = await fetch(`${API_BASE}/api/docs/verify-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      repo_url: repoUrl,
-      pat_token: patToken,
-    }),
-  });
-
-  if (res.status === 404 || res.status === 405) {
-    return {
-      valid: false,
-      message:
-        "Token verification endpoint is not available on this backend. Configure GITHUB_DOCS_TOKEN on the server for README push.",
-      encrypted_token: null,
-    };
-  }
-
-  return handleResponse<VerifyDocsTokenResponse>(res);
 }
