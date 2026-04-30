@@ -131,16 +131,25 @@ export async function reviewFromZip(
 export async function docsFromRepo(
   repoUrl: string,
   persona: Persona,
+  encryptedDocsTokenOrProgress?: string | ((msg: string) => void),
   onProgress?: (msg: string) => void
 ): Promise<DocsResponse> {
+  const encryptedDocsToken =
+    typeof encryptedDocsTokenOrProgress === "string" ? encryptedDocsTokenOrProgress : undefined;
+  const progressCb =
+    typeof encryptedDocsTokenOrProgress === "function" ? encryptedDocsTokenOrProgress : onProgress;
+
+  const payload: Record<string, string> = { repo_url: repoUrl, persona };
+  if (encryptedDocsToken) payload.encrypted_docs_token = encryptedDocsToken;
+
   return submitAndPoll<DocsResponse>(
     () =>
       fetch(`${API_BASE}/api/docs/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_url: repoUrl, persona }),
+        body: JSON.stringify(payload),
       }),
-    onProgress
+    progressCb
   );
 }
 
@@ -157,4 +166,41 @@ export async function docsFromZip(
     () => fetch(`${API_BASE}/api/docs/upload`, { method: "POST", body: fd }),
     onProgress
   );
+}
+
+export interface VerifyDocsTokenResponse {
+  valid: boolean;
+  message?: string;
+  encrypted_token?: string | null;
+  repo_full_name?: string | null;
+  default_branch?: string | null;
+}
+
+/**
+ * Verify user-provided docs PAT and return an encrypted token if backend supports it.
+ * If endpoint is unavailable, return a user-friendly response instead of throwing.
+ */
+export async function verifyDocsToken(
+  repoUrl: string,
+  patToken: string
+): Promise<VerifyDocsTokenResponse> {
+  const res = await fetch(`${API_BASE}/api/docs/verify-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      repo_url: repoUrl,
+      pat_token: patToken,
+    }),
+  });
+
+  if (res.status === 404 || res.status === 405) {
+    return {
+      valid: false,
+      message:
+        "Token verification endpoint is not available on this backend. Configure GITHUB_DOCS_TOKEN on the server for README push.",
+      encrypted_token: null,
+    };
+  }
+
+  return handleResponse<VerifyDocsTokenResponse>(res);
 }
