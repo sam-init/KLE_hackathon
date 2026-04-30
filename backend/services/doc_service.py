@@ -7,7 +7,7 @@ from backend.services.nim_client import NIMClient
 from backend.services.structure_service import StructureService
 from backend.utils.settings import settings
 from docs.graph_builder import build_dependency_graph, build_execution_flowchart, build_knowledge_graph
-from docs.readme_generator import create_onboarding_guide, create_readme_from_understanding
+from docs.readme_generator import create_onboarding_guide, create_readme_template
 from docs.rot_detector import detect_doc_rot
 from rag.rag_pipeline import RAGPipeline
 
@@ -86,10 +86,64 @@ class DocumentationService:
         regenerate: bool = False,
         repo_name: str = "",
     ) -> str:
-        _ = persona
-        _ = structure_context
-        _ = regenerate
-        return create_readme_from_understanding(parsed_files, repo_name=repo_name)
+        base = create_readme_template(parsed_files, persona, repo_name=repo_name)
+        action = "Regenerated due to doc rot detection." if regenerate else "Generated from current repository state."
+
+        # Build a rich facts block with real symbol names for the NIM prompt
+        all_fns = []
+        all_classes = []
+        for item in parsed_files[:15]:
+            for fn in item.get("functions", [])[:3]:
+                all_fns.append(f"`{fn['name']}` in {item['path']}")
+            for cls in item.get("classes", [])[:2]:
+                all_classes.append(f"`{cls['name']}` in {item['path']}")
+
+        real_fns = ", ".join(all_fns[:12]) or "none detected"
+        real_classes = ", ".join(all_classes[:8]) or "none detected"
+        file_list = ", ".join(item["path"] for item in parsed_files[:10])
+
+        prompt = f"""
+You are writing README.md for: **{repo_name or 'this repository'}**.
+
+STRICT RULES:
+- Use only facts inferable from provided files/symbols/structure.
+- Do not invent technologies, commands, or module behavior.
+- Keep paths repo-relative only; never use absolute workspace/system paths.
+- If something is unclear, omit it.
+- No placeholders, no generic filler, no marketing language.
+
+REAL CODE FACTS:
+- Files: {file_list}
+- Functions: {real_fns}
+- Classes: {real_classes}
+- Structure context: {structure_context}
+- Generation context: {action}
+
+OUTPUT FORMAT (include only relevant sections):
+1. Overview
+2. Architecture / How It Works
+3. Project Structure
+4. Key Components
+5. Technologies Used
+6. Usage (only if commands are explicitly inferable)
+7. Notes / Limitations (optional, only if inferable)
+
+QUALITY BAR:
+- Mention concrete modules and symbols where useful.
+- Prefer short, factual paragraphs and bullets.
+- Do not include a persona section.
+
+REFERENCE FACT SHEET (derive from this, but improve it):
+{base}
+        """.strip()
+
+        generated = await self.nim.chat(
+            model=settings.nim_model_qwen_docs,
+            system_prompt="You are a senior software engineer writing precise, evidence-based repository README files.",
+            user_prompt=prompt,
+            temperature=0.1,
+        )
+        return generated or base
 
     def _build_modular_docs(self, parsed_files: list[dict[str, Any]], persona: str) -> dict[str, str]:
         modules: dict[str, str] = {}
