@@ -1,0 +1,354 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+
+import { DocsResults } from "@/components/DocsResults";
+import { ReviewResults } from "@/components/ReviewResults";
+import { GraphPanel } from "@/components/GraphPanel";
+import { docsFromRepo, docsFromZip, reviewFromRepo, reviewFromZip } from "@/lib/api";
+import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
+
+const PERSONAS: Persona[] = ["Intern", "Student", "Frontend Developer", "Backend Developer"];
+const DEMO_REPO = "https://github.com/tiangolo/fastapi";
+
+type ResultTab = "review" | "docs" | "graphs";
+type InputMode = "repo" | "zip";
+
+/* ───── Loading skeleton ─────────────────────────────────── */
+function LoadingSkeleton() {
+  return (
+    <div className="card" style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+        <div className="spinner" />
+        <span style={{ color: "var(--ink-2)", fontSize: 14, fontWeight: 600 }}>
+          AI agents are processing your repository…
+        </span>
+      </div>
+      {[140, 90, 200, 110, 80].map((h, i) => (
+        <div key={i} className="skeleton" style={{ height: h, borderRadius: 8 }} />
+      ))}
+    </div>
+  );
+}
+
+/* ───── Empty placeholder ────────────────────────────────── */
+function EmptyState({ tab }: { tab: ResultTab }) {
+  const map = {
+    review: { icon: "🔍", title: "Code Reviewer Ready", desc: "Enter a repository URL or upload a ZIP and click Run to start the multi-agent code review." },
+    docs:   { icon: "📚", title: "Docs Generator Ready", desc: "Generate README, docstrings, modular docs, onboarding guide, and dependency graphs." },
+    graphs: { icon: "🕸️", title: "Graphs Ready", desc: "Run the Documentation Generator to see dependency, execution, and knowledge graphs." },
+  };
+  const { icon, title, desc } = map[tab];
+  return (
+    <div className="card empty-state">
+      <div className="icon">{icon}</div>
+      <h3>{title}</h3>
+      <p>{desc}</p>
+    </div>
+  );
+}
+
+/* ───── Dashboard ────────────────────────────────────────── */
+export default function DashboardPage() {
+  const [persona, setPersona] = useState<Persona>("Student");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [inputMode, setInputMode] = useState<InputMode>("repo");
+
+  const [reviewData, setReviewData] = useState<ReviewResponse | null>(null);
+  const [docsData, setDocsData]     = useState<DocsResponse | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [success, setSuccess]       = useState<string | null>(null);
+
+  // Which result tab is active
+  const [resultTab, setResultTab] = useState<ResultTab>("review");
+
+  async function run(mode: "repo" | "zip") {
+    if (mode === "repo" && !repoUrl) {
+      setError("Please enter a repository URL.");
+      return;
+    }
+    if (mode === "zip" && !file) {
+      setError("Please select a ZIP file.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      if (resultTab === "review" || resultTab === "graphs") {
+        // "graphs" sub-tab shows docs graphs, trigger docs
+        const doRev = resultTab === "review";
+        if (doRev) {
+          const data = mode === "repo"
+            ? await reviewFromRepo(repoUrl, persona)
+            : await reviewFromZip(file!, persona);
+          setReviewData(data);
+          setSuccess(`Review complete — ${data.findings.length} finding(s) across ${data.reviewed_files.length} file(s).`);
+        } else {
+          const data = mode === "repo"
+            ? await docsFromRepo(repoUrl, persona)
+            : await docsFromZip(file!, persona);
+          setDocsData(data);
+          setSuccess("Graphs generated successfully.");
+        }
+      } else {
+        const data = mode === "repo"
+          ? await docsFromRepo(repoUrl, persona)
+          : await docsFromZip(file!, persona);
+        setDocsData(data);
+        setSuccess("Documentation generated successfully.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed. Check the console for details.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const hasResults = reviewData !== null || docsData !== null;
+
+  return (
+    <>
+      {/* ── Nav ── */}
+      <nav className="nav">
+        <Link href="/" className="nav-brand">⚡ DevPilot AI</Link>
+        <span style={{ color: "var(--border)", fontSize: 18 }}>/</span>
+        <span style={{ color: "var(--ink-2)", fontSize: 14 }}>Dashboard</span>
+        <span className="nav-sep" />
+        {hasResults && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => { setReviewData(null); setDocsData(null); setSuccess(null); setError(null); }}
+          >
+            ✕ Clear results
+          </button>
+        )}
+      </nav>
+
+      <main className="container" style={{ paddingTop: 20 }}>
+        <div className="dashboard-grid">
+
+          {/* ─── LEFT SIDEBAR ─── */}
+          <aside>
+            <div className="card" style={{ display: "grid", gap: 20 }}>
+
+              {/* Mode toggle */}
+              <div className="sidebar-section">
+                <div className="label">Action</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {(["review", "docs", "graphs"] as ResultTab[]).map((t) => (
+                    <button
+                      key={t}
+                      className={`btn btn-sm ${resultTab === t ? "btn-primary" : "btn-secondary"}`}
+                      style={{ flex: 1, textTransform: "capitalize" }}
+                      onClick={() => setResultTab(t)}
+                      disabled={loading}
+                    >
+                      {t === "review" ? "🔍 Review" : t === "docs" ? "📚 Docs" : "🕸️ Graphs"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Persona */}
+              <div className="sidebar-section">
+                <div className="label">Persona</div>
+                <div className="persona-grid">
+                  {PERSONAS.map((p) => (
+                    <button
+                      key={p}
+                      className={`persona-chip ${persona === p ? "active" : ""}`}
+                      onClick={() => setPersona(p)}
+                      disabled={loading}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input mode */}
+              <div className="sidebar-section">
+                <div className="label">Input Source</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    className={`btn btn-sm ${inputMode === "repo" ? "btn-primary" : "btn-secondary"}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setInputMode("repo")}
+                    disabled={loading}
+                  >
+                    GitHub URL
+                  </button>
+                  <button
+                    className={`btn btn-sm ${inputMode === "zip" ? "btn-primary" : "btn-secondary"}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setInputMode("zip")}
+                    disabled={loading}
+                  >
+                    ZIP Upload
+                  </button>
+                </div>
+              </div>
+
+              {inputMode === "repo" ? (
+                <div className="sidebar-section">
+                  <label htmlFor="repo-url" className="label">Repository URL</label>
+                  <input
+                    id="repo-url"
+                    className="input"
+                    placeholder="https://github.com/owner/repo"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    disabled={loading}
+                    onKeyDown={(e) => e.key === "Enter" && run("repo")}
+                  />
+                  {/* Demo fill */}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginTop: 6, width: "100%", justifyContent: "flex-start" }}
+                    onClick={() => setRepoUrl(DEMO_REPO)}
+                    disabled={loading}
+                  >
+                    ✨ Try Demo Repo
+                  </button>
+                  <button
+                    id="run-repo-btn"
+                    className="btn btn-primary btn-full"
+                    style={{ marginTop: 8 }}
+                    onClick={() => run("repo")}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                    ) : (
+                      "▶ Run with Repo URL"
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="sidebar-section">
+                  <label htmlFor="zip-upload" className="label">ZIP File</label>
+                  <input
+                    id="zip-upload"
+                    className="input"
+                    type="file"
+                    accept=".zip"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    disabled={loading}
+                    style={{ padding: "8px 12px" }}
+                  />
+                  {file && (
+                    <div style={{ fontSize: 12, color: "var(--success)", marginTop: 6 }}>
+                      ✓ {file.name} ({(file.size / 1024).toFixed(0)} KB)
+                    </div>
+                  )}
+                  <button
+                    id="run-zip-btn"
+                    className="btn btn-primary btn-full"
+                    style={{ marginTop: 8 }}
+                    onClick={() => run("zip")}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <><div className="spinner" style={{ borderTopColor: "#fff" }} /> Processing…</>
+                    ) : (
+                      "▶ Run with ZIP"
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Status messages */}
+              {error && (
+                <div className="alert alert-error sidebar-section">
+                  <span>⚠</span> {error}
+                </div>
+              )}
+              {success && (
+                <div className="alert alert-success sidebar-section">
+                  <span>✓</span> {success}
+                </div>
+              )}
+
+              {/* Info blurb */}
+              <div className="card-inset" style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.6 }}>
+                <strong style={{ color: "var(--ink)" }}>Tip:</strong> Select a persona to adapt
+                the output tone. Use "Try Demo Repo" to auto-fill a sample repository.
+              </div>
+            </div>
+          </aside>
+
+          {/* ─── RIGHT RESULTS PANEL ─── */}
+          <section>
+            {/* Loading */}
+            {loading && <LoadingSkeleton />}
+
+            {/* Results */}
+            {!loading && (
+              <>
+                {/* Tabs — show only when we have data */}
+                {hasResults && (
+                  <div className="tabs">
+                    {reviewData !== null && (
+                      <button
+                        id="tab-review"
+                        className={`tab ${resultTab === "review" ? "active" : ""}`}
+                        onClick={() => setResultTab("review")}
+                      >
+                        🔍 Code Review
+                        <span className="tab-count">{reviewData.findings.length}</span>
+                      </button>
+                    )}
+                    {docsData !== null && (
+                      <button
+                        id="tab-docs"
+                        className={`tab ${resultTab === "docs" ? "active" : ""}`}
+                        onClick={() => setResultTab("docs")}
+                      >
+                        📚 Documentation
+                      </button>
+                    )}
+                    {docsData !== null && (
+                      <button
+                        id="tab-graphs"
+                        className={`tab ${resultTab === "graphs" ? "active" : ""}`}
+                        onClick={() => setResultTab("graphs")}
+                      >
+                        🕸️ Graphs
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Review tab */}
+                {resultTab === "review" && (
+                  reviewData ? <ReviewResults data={reviewData} /> : <EmptyState tab="review" />
+                )}
+
+                {/* Docs tab */}
+                {resultTab === "docs" && (
+                  docsData ? <DocsResults data={docsData} /> : <EmptyState tab="docs" />
+                )}
+
+                {/* Graphs tab */}
+                {resultTab === "graphs" && (
+                  docsData ? (
+                    <div className="grid">
+                      <GraphPanel title="Dependency Graph"    graph={docsData.dependency_graph} />
+                      <GraphPanel title="Execution Flowchart" graph={docsData.execution_flowchart} />
+                      <GraphPanel title="Knowledge Graph"     graph={docsData.knowledge_graph} />
+                    </div>
+                  ) : <EmptyState tab="graphs" />
+                )}
+              </>
+            )}
+          </section>
+        </div>
+      </main>
+    </>
+  );
+}

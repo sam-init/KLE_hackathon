@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+tests/
+pytest.ini
+
+# Node
+node_modules/
+.next/
+out/
+
+# Env
+.env
+.env.local
+
+# Upload/cache
+data/workspaces/*
+!data/workspaces/.gitkeep
+backend/.cache/
+
+# OS
+.DS_Store
