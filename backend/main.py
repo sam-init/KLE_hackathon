@@ -361,6 +361,7 @@ def docs_repo(payload: RepoInput, background_tasks: BackgroundTasks) -> JobStatu
     repo_full_name = _extract_repo_name(payload.repo_url)
     # Always regenerate docs for repo runs so README quality updates are reflected immediately.
     result_cache_key = None
+    logger.info("Docs cache mode | endpoint=/api/docs/repo mode=fresh_generation")
     workspace = create_workspace()
     try:
         repo_root = ingest_from_url(payload.repo_url, workspace, github_token=settings.github_review_token)

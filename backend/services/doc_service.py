@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from backend.services.nim_client import NIMClient
@@ -30,12 +31,19 @@ class DocumentationService:
         docstrings = self._generate_docstrings(parsed_files, persona)
         logger.info("Docs phase | generating_readme")
         readme = await self._generate_readme(parsed_files, persona, structure_context, repo_name=repo_name)
+        existing_readme = next((item.get("content", "") for item in parsed_files if item.get("path", "").lower().endswith("readme.md")), "")
 
         existing_docs = "\n\n".join(item["content"] for item in parsed_files if item["path"].endswith(".md"))
         doc_rot = detect_doc_rot(parsed_files, existing_docs)
         if doc_rot:
             logger.info("Docs phase | doc_rot_detected=true regenerating_readme")
             readme = await self._generate_readme(parsed_files, persona, structure_context, regenerate=True, repo_name=repo_name)
+        if not existing_readme.strip():
+            logger.info("README status | mode=new_generated")
+        elif existing_readme.strip() == readme.strip():
+            logger.info("README status | mode=unchanged_from_existing")
+        else:
+            logger.info("README status | mode=updated_from_existing")
 
         logger.info("Docs phase | building_modular_docs_and_graphs")
         modular_docs = self._build_modular_docs(parsed_files, persona)
@@ -89,21 +97,50 @@ class DocumentationService:
     ) -> str:
         base = create_readme_from_understanding(parsed_files, repo_name=repo_name)
         if not self.nim.enabled:
+            logger.info("README generation source | source=deterministic_draft reason=nim_disabled")
             return base
 
-        # Use LLM only as a writing layer over grounded facts to improve clarity.
+        top_files = parsed_files[:16]
+        route_hits: list[str] = []
+        symbol_hits: list[str] = []
+        for item in top_files:
+            path = item.get("path", "")
+            content = item.get("content", "")
+            for line in content.splitlines()[:300]:
+                stripped = line.strip()
+                if re.search(r"@app\.(route|get|post|put|patch|delete)\(", stripped):
+                    route_hits.append(f"{path}: {stripped}")
+            for fn in item.get("functions", [])[:4]:
+                name = str(fn.get("name", "")).strip()
+                if name:
+                    symbol_hits.append(f"{path}:{name}")
+
+        facts_block = "\n".join(
+            [
+                f"- files: {', '.join(item.get('path', '') for item in top_files[:10])}",
+                f"- symbols: {', '.join(symbol_hits[:16]) or 'none'}",
+                f"- route decorators: {', '.join(route_hits[:10]) or 'none'}",
+            ]
+        )
+
+        # LLM-led rewrite with strict grounding constraints.
         prompt = f"""
-Rewrite this README to improve clarity and project understanding.
-Rules:
-- Stay strictly grounded in provided README content.
+Write a polished repository README.
+Hard requirements:
+- Stay strictly grounded in provided code facts and draft README.
+- In the first 2 sentences, explain WHAT this project does for a user/operator (not what files exist).
+- Mention at least two concrete code references (function names, endpoints, or modules).
 - Keep all file paths repo-relative.
 - Do not add frameworks/tools not present.
 - Avoid generic filler text.
 - Keep sections concise and developer-focused.
+- If information is missing, omit that detail.
 
 Persona: {persona_style(persona)}
 Structure context (for clarity only): {structure_context}
 Regeneration reason: {"doc_rot" if regenerate else "normal"}
+Code facts:
+{facts_block}
 
 README DRAFT:
 {base}
@@ -114,7 +151,11 @@ README DRAFT:
             user_prompt=prompt,
             temperature=0.1,
         )
-        return generated or base
+        if generated and generated.strip():
+            logger.info("README generation source | source=llm_rewrite")
+            return generated
+        logger.info("README generation source | source=deterministic_draft reason=llm_empty")
+        return base
 
     def _build_modular_docs(self, parsed_files: list[dict[str, Any]], persona: str) -> dict[str, str]:
         modules: dict[str, str] = {}
