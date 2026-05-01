@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 :root {
   --bg: #050d05;
@@ -22,6 +22,7 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 6px;
+  --font-space-grotesk: "Space Grotesk";
   --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
 }
 
