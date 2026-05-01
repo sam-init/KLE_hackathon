@@ -17,11 +17,7 @@ import {
 import { DocsResponse, Persona, ReviewResponse } from "@/lib/types";
 import { GraphView } from "@/src/components/GraphView";
 import { TreeView } from "@/src/components/TreeView";
-import {
-  GraphDatasetKey,
-  createVisualizationBundle,
-  getConnectedNodeIds,
-} from "@/src/utils/graphAdapter";
+import { createVisualizationBundle, getConnectedNodeIds } from "@/src/utils/graphAdapter";
 
 const FaultyTerminal = dynamic(() => import("@/app/components/FaultyTerminal"), {
   ssr: false,
@@ -111,8 +107,6 @@ export default function DashboardPage() {
   const [verifyingToken, setVerifyingToken] = useState(false);
 
   const [resultTab, setResultTab] = useState<ResultTab>("review");
-  const [graphDataset, setGraphDataset] =
-    useState<GraphDatasetKey>("dependency_graph");
   const [visualizationMode, setVisualizationMode] =
     useState<VisualizationMode>("split");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -120,8 +114,8 @@ export default function DashboardPage() {
   const [treeExpanded, setTreeExpanded] = useState(false);
 
   const visualization = useMemo(
-    () => (docsData ? createVisualizationBundle(docsData, graphDataset) : null),
-    [docsData, graphDataset],
+    () => (docsData ? createVisualizationBundle(docsData, "dependency_graph") : null),
+    [docsData],
   );
 
   const selectedNode = useMemo(
@@ -141,7 +135,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setSelectedNodeId(null);
-  }, [graphDataset, docsData?.run_id]);
+  }, [docsData?.run_id]);
 
   useEffect(() => {
     if (visualizationMode === "tree") {
@@ -618,25 +612,9 @@ export default function DashboardPage() {
                     <div className="grid" style={{ gap: 16 }}>
                       <div className="viz-toolbar card">
                         <div className="viz-toolbar-row">
-                          {([
-                            ["dependency_graph", "Dependency"],
-                            ["execution_flowchart", "Execution"],
-                            ["knowledge_graph", "Knowledge"],
-                          ] as Array<[GraphDatasetKey, string]>).map(
-                            ([key, label]) => (
-                              <button
-                                key={key}
-                                className={`btn btn-sm ${
-                                  graphDataset === key
-                                    ? "btn-primary"
-                                    : "btn-secondary"
-                                }`}
-                                onClick={() => setGraphDataset(key)}
-                              >
-                                {label}
-                              </button>
-                            ),
-                          )}
+                          <button className="btn btn-sm btn-primary" type="button">
+                            Dependency
+                          </button>
                         </div>
                         <div className="viz-toolbar-row">
                           {([
@@ -709,11 +687,7 @@ export default function DashboardPage() {
                         {visualization && visualizationMode !== "tree" && (
                           <GraphView
                             title={
-                              graphDataset === "dependency_graph"
-                                ? "Dependency Graph"
-                                : graphDataset === "execution_flowchart"
-                                  ? "Execution Flow"
-                                  : "Knowledge Graph"
+                              "Dependency Graph"
                             }
                             graph={visualization.graph}
                             selectedNodeId={selectedNodeId}

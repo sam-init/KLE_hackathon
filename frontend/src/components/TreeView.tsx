@@ -28,16 +28,16 @@ type Props = {
   onToggleExpand?: () => void;
 };
 
-type LayoutNode = {
+type Branch = {
   id: string;
-  x: number;
-  y: number;
-  depth: number;
-  group: string;
-  type: "folder" | "file";
-  name: string;
-  path: string;
+  label: string;
   fileCount: number;
+  leaves: Array<{
+    id: string;
+    label: string;
+    path: string;
+    group: string;
+  }>;
 };
 
 function toRgb(color: string): string {
@@ -56,132 +56,185 @@ function toRgb(color: string): string {
   return `${red}, ${green}, ${blue}`;
 }
 
-function buildTreeLayout(tree: TreeNode) {
-  const layoutNodes: LayoutNode[] = [];
-  const edges: Edge[] = [];
-  let leafIndex = 0;
-
-  function visit(node: TreeNode, parent: TreeNode | null): number {
-    const childYs = node.children.map((child) => visit(child, node));
-    const y = childYs.length > 0 ? childYs.reduce((a, b) => a + b, 0) / childYs.length : leafIndex++ * 108 + 72;
-    const group = node.type === "file" ? getNodeGroupFromPath(node.path) : "root";
-
-    layoutNodes.push({
-      id: node.id,
-      x: node.depth * 280 + 80,
-      y,
-      depth: node.depth,
-      group,
-      type: node.type,
-      name: node.name,
-      path: node.path,
-      fileCount: node.fileCount,
-    });
-
-    if (parent) {
-      const edgeColor =
-        node.type === "file" ? getGroupColor(group) : "rgba(71, 85, 105, 0.42)";
-      edges.push({
-        id: `${parent.id}->${node.id}`,
-        source: parent.id,
-        target: node.id,
-        type: "smoothstep",
-        animated: false,
-        markerEnd:
-          node.type === "file"
-            ? {
-                type: MarkerType.ArrowClosed,
-                width: 16,
-                height: 16,
-                color: edgeColor,
-              }
-            : undefined,
-        style: {
-          stroke: edgeColor,
-          strokeWidth: node.type === "file" ? 2.4 : 1.4,
-          opacity: 0.92,
-        },
-      });
-    }
-
-    return y;
+function collectFiles(node: TreeNode): Branch["leaves"] {
+  if (node.type === "file") {
+    return [
+      {
+        id: node.id,
+        label: node.name,
+        path: node.path,
+        group: getNodeGroupFromPath(node.path),
+      },
+    ];
   }
 
-  visit(tree, null);
-  return { layoutNodes, edges };
+  return node.children.flatMap(collectFiles);
 }
 
-function makeFlowNodes(
-  layoutNodes: LayoutNode[],
-  selectedNodeId: string | null,
-  connectedNodeIds: Set<string>,
-): Node[] {
+function buildBranches(tree: TreeNode): Branch[] {
+  const rootFiles = tree.children.filter((child) => child.type === "file");
+  const rootFolders = tree.children.filter((child) => child.type === "folder");
+
+  const branches: Branch[] = [];
+
+  if (rootFiles.length > 0) {
+    branches.push({
+      id: "branch:root",
+      label: "root",
+      fileCount: rootFiles.length,
+      leaves: rootFiles.map((file) => ({
+        id: file.id,
+        label: file.name,
+        path: file.path,
+        group: getNodeGroupFromPath(file.path),
+      })),
+    });
+  }
+
+  for (const folder of rootFolders) {
+    const leaves = collectFiles(folder);
+    if (leaves.length === 0) continue;
+
+    branches.push({
+      id: `branch:${folder.id}`,
+      label: folder.name,
+      fileCount: leaves.length,
+      leaves,
+    });
+  }
+
+  return branches;
+}
+
+function buildFlow(branches: Branch[], selectedNodeId: string | null, connectedNodeIds: Set<string>) {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
   const hasSelection = Boolean(selectedNodeId);
 
-  return layoutNodes.map((node) => {
-    const groupTint = getGroupColor(node.group);
-    const isSelected = node.id === selectedNodeId;
-    const isConnected = connectedNodeIds.has(node.id);
-    const isFile = node.type === "file";
+  const trunkId = "tree-trunk";
+  const trunkY =
+    branches.length > 0
+      ? branches.reduce((sum, _, index) => sum + index * 150 + 110, 0) / branches.length
+      : 220;
 
-    return {
-      id: node.id,
-      position: { x: node.x, y: node.y },
+  nodes.push({
+    id: trunkId,
+    position: { x: 90, y: trunkY },
+    draggable: false,
+    selectable: false,
+    data: {
+      label: <span className="treegraph-trunk" />,
+    },
+    style: {
+      border: "none",
+      background: "transparent",
+      boxShadow: "none",
+      width: 24,
+      height: 24,
+      padding: 0,
+    },
+  });
+
+  branches.forEach((branch, branchIndex) => {
+    const leafStartY = branchIndex * 150 + 36;
+    const leafGap = 40;
+    const leafYs = branch.leaves.map((_, leafIndex) => leafStartY + leafIndex * leafGap);
+    const branchY =
+      leafYs.length > 0
+        ? leafYs.reduce((sum, value) => sum + value, 0) / leafYs.length
+        : branchIndex * 150 + 110;
+
+    nodes.push({
+      id: branch.id,
+      position: { x: 500, y: branchY },
       draggable: false,
-      selectable: true,
+      selectable: false,
       data: {
-        tint: groupTint,
         label: (
-          <div className={`treeviz-node ${isFile ? "file" : "folder"}`}>
-            <span
-              className={`treeviz-dot ${isFile ? "file" : "folder"}`}
-              style={{
-                backgroundColor: isFile ? groupTint : "rgba(51, 65, 85, 0.92)",
-                boxShadow: isFile
-                  ? `0 0 18px rgba(${toRgb(groupTint)}, 0.42)`
-                  : "none",
-              }}
-            />
-            <div className="treeviz-copy">
-              <strong>{node.name}</strong>
-              <span>{isFile ? node.path : `${node.fileCount} files`}</span>
-            </div>
+          <div className="treegraph-branch">
+            <span className="treegraph-branch-dot" />
+            <span className="treegraph-branch-label">{branch.label}</span>
           </div>
         ),
       },
       style: {
         border: "none",
-        borderRadius: 12,
         background: "transparent",
-        color: isFile ? "#e2e8f0" : "#94a3b8",
         boxShadow: "none",
-        opacity: hasSelection && !isSelected && !isConnected ? 0.24 : 1,
+        padding: 0,
       },
-    };
-  });
-}
+    });
 
-function makeFlowEdges(
-  baseEdges: Edge[],
-  selectedNodeId: string | null,
-  connectedNodeIds: Set<string>,
-): Edge[] {
-  const hasSelection = Boolean(selectedNodeId);
-
-  return baseEdges.map((edge) => {
-    const isConnected =
-      connectedNodeIds.has(edge.source) && connectedNodeIds.has(edge.target);
-
-    return {
-      ...edge,
-      animated: Boolean(selectedNodeId && isConnected),
+    edges.push({
+      id: `${trunkId}->${branch.id}`,
+      source: trunkId,
+      target: branch.id,
+      type: "smoothstep",
+      animated: false,
       style: {
-        ...edge.style,
-        opacity: hasSelection && !isConnected ? 0.12 : 0.96,
-        stroke: isConnected ? "#7dd3fc" : edge.style?.stroke,
+        stroke: "rgba(71, 85, 105, 0.35)",
+        strokeWidth: 1.8,
       },
-    };
+    });
+
+    branch.leaves.forEach((leaf, leafIndex) => {
+      const tint = getGroupColor(leaf.group);
+      const active = connectedNodeIds.has(leaf.id);
+      const isSelected = selectedNodeId === leaf.id;
+
+      nodes.push({
+        id: leaf.id,
+        position: { x: 960, y: leafYs[leafIndex] },
+        draggable: false,
+        selectable: true,
+        data: {
+          label: (
+            <button
+              type="button"
+              className={`treegraph-leaf ${isSelected ? "selected" : ""}`}
+            >
+              <span
+                className="treegraph-leaf-dot"
+                style={{
+                  backgroundColor: tint,
+                  boxShadow: `0 0 16px rgba(${toRgb(tint)}, 0.45)`,
+                }}
+              />
+              <span className="treegraph-leaf-label">{leaf.label}</span>
+            </button>
+          ),
+        },
+        style: {
+          border: "none",
+          background: "transparent",
+          boxShadow: "none",
+          padding: 0,
+          opacity: hasSelection && !active && !isSelected ? 0.2 : 1,
+        },
+      });
+
+      edges.push({
+        id: `${branch.id}->${leaf.id}`,
+        source: branch.id,
+        target: leaf.id,
+        type: "smoothstep",
+        animated: Boolean(selectedNodeId && active),
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 16,
+          height: 16,
+          color: active ? "#7dd3fc" : tint,
+        },
+        style: {
+          stroke: active ? "#7dd3fc" : tint,
+          strokeWidth: active ? 2.6 : 2.1,
+          opacity: hasSelection && !active ? 0.14 : 0.92,
+        },
+      });
+    });
   });
+
+  return { nodes, edges };
 }
 
 function TreeCanvas({
@@ -192,26 +245,22 @@ function TreeCanvas({
   isExpanded = false,
   onToggleExpand,
 }: Props) {
-  const { layoutNodes, edges } = useMemo(() => buildTreeLayout(tree), [tree]);
+  const branches = useMemo(() => buildBranches(tree), [tree]);
   const connectedNodeIds = useMemo(
     () => getConnectedNodeIds(graph, selectedNodeId ?? null),
     [graph, selectedNodeId],
   );
-  const nodes = useMemo(
-    () => makeFlowNodes(layoutNodes, selectedNodeId ?? null, connectedNodeIds),
-    [connectedNodeIds, layoutNodes, selectedNodeId],
-  );
-  const flowEdges = useMemo(
-    () => makeFlowEdges(edges, selectedNodeId ?? null, connectedNodeIds),
-    [connectedNodeIds, edges, selectedNodeId],
+  const flow = useMemo(
+    () => buildFlow(branches, selectedNodeId ?? null, connectedNodeIds),
+    [branches, connectedNodeIds, selectedNodeId],
   );
 
   return (
-    <div className="viz-panel tree-panel treeviz-panel">
+    <div className="viz-panel tree-panel treegraph-panel">
       <div className="viz-panel-header">
         <div>
           <h3>Tree View</h3>
-          <p>Repository structure in a visual tree with group-aware file colors.</p>
+          <p>Dependency tree view with category branches and colored file leaves.</p>
         </div>
         <div className="viz-badge-row">
           <button
@@ -221,27 +270,30 @@ function TreeCanvas({
           >
             {isExpanded ? "Exit Expanded View" : "Expand Tree"}
           </button>
-          <span className="viz-badge">{layoutNodes.length} items</span>
+          <span className="viz-badge">{branches.length} branches</span>
         </div>
       </div>
 
-      <div className="treeviz-canvas">
+      <div className="treegraph-canvas">
         <ReactFlow
-          nodes={nodes}
-          edges={flowEdges}
+          nodes={flow.nodes}
+          edges={flow.edges}
           fitView
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable
           zoomOnDoubleClick={false}
-          minZoom={0.4}
-          maxZoom={1.5}
+          minZoom={0.45}
+          maxZoom={1.4}
           proOptions={{ hideAttribution: true }}
           colorMode="dark"
-          onNodeClick={(_, node) => onNodeSelect?.(node.id)}
+          onNodeClick={(_, node) => {
+            if (node.id.startsWith("branch:") || node.id === "tree-trunk") return;
+            onNodeSelect?.(node.id);
+          }}
           onPaneClick={() => onNodeSelect?.(null)}
         >
-          <Background gap={24} size={1} color="rgba(51, 65, 85, 0.36)" />
+          <Background gap={26} size={1} color="rgba(51, 65, 85, 0.18)" />
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>

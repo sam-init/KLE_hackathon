@@ -1294,63 +1294,85 @@ details .detail-body {
   text-transform: uppercase;
 }
 
-.treeviz-panel .react-flow__renderer,
-.treeviz-panel .react-flow__container,
-.treeviz-panel .react-flow {
+.treegraph-panel .react-flow__renderer,
+.treegraph-panel .react-flow__container,
+.treegraph-panel .react-flow {
   background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.04), transparent 28%),
-    linear-gradient(180deg, #05070c, #080b12 74%, #05070c);
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.03), transparent 24%),
+    linear-gradient(180deg, #030407, #07090d 72%, #030407);
 }
 
-.treeviz-canvas {
+.treegraph-canvas {
   height: 100%;
   min-height: 540px;
 }
 
-.treeviz-node {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 170px;
+.treegraph-trunk {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 3px solid rgba(148, 163, 184, 0.42);
+  background: rgba(15, 23, 42, 0.8);
 }
 
-.treeviz-node.folder {
+.treegraph-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   min-width: 140px;
 }
 
-.treeviz-dot {
-  display: inline-block;
+.treegraph-branch-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 3px solid rgba(148, 163, 184, 0.42);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.treegraph-branch-label {
+  font-size: 13px;
+  color: #94a3b8;
+  letter-spacing: 0.01em;
+}
+
+.treegraph-leaf {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.treegraph-leaf.selected .treegraph-leaf-label {
+  color: #7dd3fc;
+}
+
+.treegraph-leaf-dot {
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   flex: 0 0 auto;
 }
 
-.treeviz-dot.folder {
-  width: 16px;
-  height: 16px;
-  border: 3px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.8);
-}
-
-.treeviz-dot.file {
-  width: 18px;
-  height: 18px;
-}
-
-.treeviz-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.treeviz-copy strong {
+.treegraph-leaf-label {
   font-size: 13px;
-  font-weight: 700;
   color: #e2e8f0;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.treeviz-copy span {
-  font-size: 11px;
-  color: #94a3b8;
-  word-break: break-word;
+.viz-shell.expanded-tree .treegraph-panel {
+  min-height: 78vh;
+}
+
+.viz-shell.expanded-tree .treegraph-canvas {
+  min-height: 72vh;
 }
 
 .tree-scroll {
