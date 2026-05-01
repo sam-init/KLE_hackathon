@@ -3,8 +3,10 @@
 import {
   Background,
   Controls,
+  Edge,
   MarkerType,
   MiniMap,
+  Node,
   Position,
   ReactFlow,
   ReactFlowProvider,
@@ -24,6 +26,8 @@ type Props = {
   graph: VisualizationBundle["graph"];
   selectedNodeId?: string | null;
   onNodeSelect?: (nodeId: string | null) => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
 };
 
 const NODE_COLORS: Record<string, string> = {
@@ -37,7 +41,42 @@ function nodeColor(kind: string): string {
   return NODE_COLORS[kind] ?? "#94a3b8";
 }
 
-function layoutNodes(nodes: AdaptedGraphNode[]) {
+const GROUP_PALETTE = [
+  "#7dd3fc",
+  "#34d399",
+  "#fbbf24",
+  "#f472b6",
+  "#a78bfa",
+  "#fb7185",
+  "#f97316",
+  "#2dd4bf",
+];
+
+function groupColor(group: string): string {
+  let hash = 0;
+  for (let index = 0; index < group.length; index += 1) {
+    hash = (hash * 31 + group.charCodeAt(index)) >>> 0;
+  }
+  return GROUP_PALETTE[hash % GROUP_PALETTE.length];
+}
+
+function toRgb(color: string): string {
+  const normalized = color.replace("#", "");
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : normalized;
+  const value = Number.parseInt(expanded, 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `${red}, ${green}, ${blue}`;
+}
+
+function layoutNodes(nodes: AdaptedGraphNode[]): Node[] {
   const groups = new Map<string, AdaptedGraphNode[]>();
 
   for (const node of nodes) {
@@ -53,46 +92,64 @@ function layoutNodes(nodes: AdaptedGraphNode[]) {
   return orderedGroups.flatMap(([groupName, groupNodes], groupIndex) =>
     groupNodes
       .sort((a, b) => a.path.localeCompare(b.path))
-      .map((node, nodeIndex) => ({
-        id: node.id,
-        type: "default",
-        draggable: true,
-        position: {
-          x: groupIndex * 260 + (node.depth % 2) * 24,
-          y: nodeIndex * 110 + (groupName.length % 3) * 20,
-        },
-        data: {
-          label: (
-            <div className="flow-node-card">
-              <div className="flow-node-top">
+      .map((node, nodeIndex) => {
+        const kindTint = nodeColor(node.kind);
+        const groupTint = groupColor(node.group);
+
+        return {
+          id: node.id,
+          type: "default",
+          draggable: true,
+          position: {
+            x: groupIndex * 260 + (node.depth % 2) * 24,
+            y: nodeIndex * 110 + (groupName.length % 3) * 20,
+          },
+          data: {
+            tint: groupTint,
+            label: (
+              <div className="flow-node-card">
+                <div className="flow-node-top">
+                  <span
+                    className="flow-node-dot"
+                    style={{ backgroundColor: groupTint }}
+                  />
+                  <span className="flow-node-kind">{node.kind}</span>
+                </div>
+                <strong>{node.label}</strong>
+                <span>{node.path}</span>
                 <span
-                  className="flow-node-dot"
-                  style={{ backgroundColor: nodeColor(node.kind) }}
-                />
-                <span className="flow-node-kind">{node.kind}</span>
+                  className="flow-node-group"
+                  style={{ color: groupTint }}
+                >
+                  {node.group}
+                </span>
               </div>
-              <strong>{node.label}</strong>
-              <span>{node.path}</span>
-            </div>
-          ),
-        },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-        style: {
-          width: 210,
-          borderRadius: 14,
-          border: "1px solid rgba(148, 163, 184, 0.2)",
-          background:
-            "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.88))",
-          color: "#e2e8f0",
-          boxShadow: "0 16px 40px rgba(2, 6, 23, 0.32)",
-        },
-      })),
+            ),
+          },
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
+          style: {
+            width: 210,
+            borderRadius: 14,
+            border: `1px solid rgba(${toRgb(groupTint)}, 0.42)`,
+            background:
+              "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.88))",
+            color: "#e2e8f0",
+            boxShadow: `0 16px 40px rgba(2, 6, 23, 0.32), inset 0 0 0 1px rgba(${toRgb(kindTint)}, 0.12)`,
+          },
+        };
+      }),
   );
 }
 
-function buildEdges(graph: VisualizationBundle["graph"]) {
-  return graph.edges.map((edge) => ({
+function buildEdges(graph: VisualizationBundle["graph"]): Edge[] {
+  const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
+
+  return graph.edges.map((edge) => {
+    const sourceNode = nodeMap.get(edge.source);
+    const targetNode = nodeMap.get(edge.target);
+    const edgeTint = groupColor(sourceNode?.group ?? targetNode?.group ?? "root");
+    return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
@@ -103,20 +160,28 @@ function buildEdges(graph: VisualizationBundle["graph"]) {
       type: MarkerType.ArrowClosed,
       width: 18,
       height: 18,
-      color: "rgba(148, 163, 184, 0.7)",
+      color: edgeTint,
     },
     style: {
-      stroke: "rgba(96, 165, 250, 0.45)",
-      strokeWidth: 1.6,
+      stroke: edgeTint,
+      strokeWidth: 2.2,
     },
     labelStyle: {
-      fill: "#94a3b8",
+      fill: edgeTint,
       fontSize: 11,
     },
-  }));
+    };
+  });
 }
 
-function GraphCanvas({ title, graph, selectedNodeId, onNodeSelect }: Props) {
+function GraphCanvas({
+  title,
+  graph,
+  selectedNodeId,
+  onNodeSelect,
+  isExpanded = false,
+  onToggleExpand,
+}: Props) {
   const baseNodes = useMemo(() => layoutNodes(graph.nodes), [graph.nodes]);
   const baseEdges = useMemo(() => buildEdges(graph), [graph]);
 
@@ -147,7 +212,7 @@ function GraphCanvas({ title, graph, selectedNodeId, onNodeSelect }: Props) {
               node.id === selectedNodeId
                 ? "rgba(125, 211, 252, 0.95)"
                 : active
-                  ? "rgba(96, 165, 250, 0.55)"
+                  ? `rgba(${toRgb(String(node.data?.tint ?? "#60a5fa"))}, 0.55)`
                   : "rgba(148, 163, 184, 0.2)",
             boxShadow:
               node.id === selectedNodeId
@@ -172,8 +237,8 @@ function GraphCanvas({ title, graph, selectedNodeId, onNodeSelect }: Props) {
             ...edge.style,
             opacity: hasSelection && !active ? 0.14 : 0.95,
             stroke: active
-              ? "rgba(125, 211, 252, 0.85)"
-              : "rgba(96, 165, 250, 0.35)",
+              ? "#7dd3fc"
+              : edge.style?.stroke,
           },
         };
       }),
@@ -188,6 +253,13 @@ function GraphCanvas({ title, graph, selectedNodeId, onNodeSelect }: Props) {
           <p>Drag nodes, pan the canvas, and click a file to trace its neighbors.</p>
         </div>
         <div className="viz-badge-row">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm viz-expand-btn"
+            onClick={onToggleExpand}
+          >
+            {isExpanded ? "Exit Expanded View" : "Expand Graph"}
+          </button>
           <span className="viz-badge">{graph.nodes.length} nodes</span>
           <span className="viz-badge">{graph.edges.length} edges</span>
         </div>

@@ -1150,6 +1150,15 @@ details .detail-body {
   grid-template-columns: minmax(280px, 1.2fr) minmax(240px, 0.9fr);
 }
 
+.viz-shell.expanded-graph {
+  grid-template-columns: 1fr;
+}
+
+.viz-shell.expanded-graph .tree-panel,
+.viz-shell.expanded-graph .detail-panel {
+  display: none;
+}
+
 .viz-panel {
   display: flex;
   flex-direction: column;
@@ -1201,9 +1210,21 @@ details .detail-body {
   font-weight: 600;
 }
 
+.viz-expand-btn {
+  min-width: 148px;
+}
+
 .graph-canvas {
   height: 100%;
   min-height: 540px;
+}
+
+.viz-shell.expanded-graph .graph-panel {
+  min-height: 78vh;
+}
+
+.viz-shell.expanded-graph .graph-canvas {
+  min-height: 72vh;
 }
 
 .graph-panel .react-flow__renderer,
@@ -1247,6 +1268,13 @@ details .detail-body {
   font-size: 11px;
   color: #94a3b8;
   word-break: break-word;
+}
+
+.flow-node-group {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tree-scroll {
