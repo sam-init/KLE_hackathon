@@ -175,9 +175,17 @@ REFERENCE FACT SHEET (derive from this, but improve it):
             return resolve_persona_style(persona)
         except Exception:
             fallback = {
-                "Intern": "Explain each finding in simple language and include one practical next action.",
-                "Student": "Clarify concept-level reasoning and connect each fix to software engineering fundamentals.",
-                "Frontend Developer": "Prioritize UX, component boundaries, API contracts, and accessibility implications.",
-                "Backend Developer": "Prioritize correctness, architecture, performance bottlenecks, and scalability trade-offs.",
+                "Intern": (
+                    "Use simple language, define terms once, explain concrete impact, and provide a safe first action."
+                ),
+                "Student": (
+                    "Connect findings to engineering fundamentals, explain trade-offs, and emphasize the invariant restored by the fix."
+                ),
+                "Frontend Developer": (
+                    "Prioritize user impact, accessibility, component boundaries, and UI/API contract consistency."
+                ),
+                "Backend Developer": (
+                    "Prioritize reliability, correctness, service boundaries, and operational impact under load."
+                ),
             }
             return fallback.get(persona, fallback["Student"])
