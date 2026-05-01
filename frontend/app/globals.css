@@ -741,15 +741,12 @@ details .detail-body {
   width: 50px;
   height: 50px;
   margin: 0 auto 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(167, 239, 158, 0.35);
   color: var(--accent);
   display: grid;
   place-items: center;
   font-size: 21px;
   font-family: var(--font-mono);
   font-weight: 700;
-  background: rgba(167, 239, 158, 0.06);
 }
 
 .empty-state h3 {
