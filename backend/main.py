@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -78,6 +79,8 @@ RUN_CACHE: dict[str, dict[str, Any]] = {}
 JOBS_FALLBACK: dict[str, dict[str, Any]] = {}
 JOB_KEY_PREFIX = "jobs:"
 JOB_TTL_SECONDS = int(os.getenv("JOB_TTL_SECONDS", "86400"))
+JOB_PHASE_TIMEOUT_SECONDS = settings.job_phase_timeout_seconds
+JOB_STALE_TIMEOUT_SECONDS = max(settings.job_stale_timeout_seconds, JOB_PHASE_TIMEOUT_SECONDS)
 
 
 @app.on_event("startup")
@@ -155,6 +158,19 @@ async def get_job_status(job_id: str) -> JobStatus:
     job = await _get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+
+    if job.get("status") == "processing":
+        updated_at = float(job.get("updated_at") or 0)
+        age_seconds = time.time() - updated_at if updated_at else 0
+        if updated_at and age_seconds > JOB_STALE_TIMEOUT_SECONDS:
+            msg = (
+                f"Job exceeded processing window ({JOB_STALE_TIMEOUT_SECONDS}s) and was marked failed. "
+                "Please retry."
+            )
+            logger.warning("Job stale timeout | job_id=%s age_seconds=%d", job_id, int(age_seconds))
+            await _set_job(job_id, "error", msg, None)
+            job = await _get_job(job_id) or {"status": "error", "message": msg, "result": None}
+
     return JobStatus(
         job_id=job_id,
         status=job["status"],
@@ -170,10 +186,12 @@ def _job_key(job_id: str) -> str:
 
 
 async def _set_job(job_id: str, status: str, message: str = "", result: Any = None) -> None:
+    now_ts = str(time.time())
     payload = {
         "status": status,
         "message": message,
         "result": json.dumps(result),
+        "updated_at": now_ts,
     }
     key = _job_key(job_id)
     try:
@@ -185,6 +203,7 @@ async def _set_job(job_id: str, status: str, message: str = "", result: Any = No
             "status": status,
             "message": message,
             "result": result,
+            "updated_at": float(now_ts),
         }
 
 
@@ -202,12 +221,26 @@ async def _get_job(job_id: str) -> dict[str, Any] | None:
         result = json.loads(data.get("result", "null"))
     except json.JSONDecodeError:
         result = None
+    try:
+        updated_at = float(data.get("updated_at", "0") or 0)
+    except ValueError:
+        updated_at = 0.0
 
     return {
         "status": data.get("status", "processing"),
         "message": data.get("message", ""),
         "result": result,
+        "updated_at": updated_at,
     }
+
+
+async def _run_with_job_timeout(awaitable, *, job_id: str, phase: str):
+    try:
+        return await asyncio.wait_for(awaitable, timeout=JOB_PHASE_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
+        raise TimeoutError(
+            f"{phase} exceeded timeout ({JOB_PHASE_TIMEOUT_SECONDS}s) for job {job_id}"
+        ) from exc
 
 
 def _parse_workspace(repo_root: Path) -> list[dict[str, Any]]:
@@ -242,7 +275,11 @@ async def _job_review(job_id: str, persona: str, workspace: Path, repo_root: Pat
         parsed_files = _parse_workspace(repo_root)
         await _set_job(job_id, "processing", "Review processing started", None)
         logger.info("Job phase | type=review job_id=%s phase=model_processing", job_id)
-        result = await review_service.review(parsed_files, persona)
+        result = await _run_with_job_timeout(
+            review_service.review(parsed_files, persona),
+            job_id=job_id,
+            phase="review generation",
+        )
         run_id = str(uuid.uuid4())
         response = ReviewResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
         RUN_CACHE[run_id] = response.model_dump()
@@ -270,7 +307,11 @@ async def _job_docs(
         parsed_files = _parse_workspace(repo_root)
         await _set_job(job_id, "processing", "Docs processing started", None)
         logger.info("Job phase | type=docs job_id=%s phase=model_processing", job_id)
-        result = await doc_service.generate(parsed_files, persona)
+        result = await _run_with_job_timeout(
+            doc_service.generate(parsed_files, persona),
+            job_id=job_id,
+            phase="docs generation",
+        )
         run_id = str(uuid.uuid4())
         response = DocsResponse(run_id=run_id, persona=persona, **result)  # type: ignore[arg-type]
         RUN_CACHE[run_id] = response.model_dump()

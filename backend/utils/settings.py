@@ -28,6 +28,17 @@ def _parse_cors_origins(raw: str) -> tuple[str, ...]:
     return tuple(sorted(expanded))
 
 
+def _int_env(name: str, default: int, minimum: int | None = None) -> int:
+    raw = os.getenv(name, "").strip()
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        value = default
+    if minimum is not None and value < minimum:
+        return minimum
+    return value
+
+
 @dataclass(frozen=True)
 class Settings:
     backend_host: str = os.getenv("BACKEND_HOST", "0.0.0.0")
@@ -52,6 +63,13 @@ class Settings:
     nim_model_neotron: str = os.getenv("NIM_MODEL_NEOTRON", "nvidia/llama-3.1-nemotron-70b-instruct")
     nim_model_qwen_docs: str = os.getenv("NIM_MODEL_QWEN_DOCS", "qwen/qwen2.5-coder-32b-instruct")
     nim_model_qwen_review: str = os.getenv("NIM_MODEL_QWEN_REVIEW", "qwen/qwen2.5-coder-32b-instruct")
+    nim_request_timeout_seconds: int = _int_env("NIM_REQUEST_TIMEOUT_SECONDS", 90, minimum=10)
+    nim_max_retries: int = _int_env("NIM_MAX_RETRIES", 2, minimum=1)
+    nim_max_tokens: int = _int_env("NIM_MAX_TOKENS", 1024, minimum=128)
+
+    # Hard caps to prevent job status from staying "processing" forever.
+    job_phase_timeout_seconds: int = _int_env("JOB_PHASE_TIMEOUT_SECONDS", 300, minimum=60)
+    job_stale_timeout_seconds: int = _int_env("JOB_STALE_TIMEOUT_SECONDS", 420, minimum=120)
 
 
 settings = Settings()

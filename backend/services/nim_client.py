@@ -11,9 +11,15 @@ from backend.utils.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Conservative timeout for Render free-tier: NIM must respond within 120 s or we skip.
-_NIM_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=5.0)
-_NIM_MAX_RETRIES = 3
+# Keep NIM calls bounded so background jobs do not stall indefinitely.
+_NIM_TIMEOUT = httpx.Timeout(
+    connect=10.0,
+    read=float(settings.nim_request_timeout_seconds),
+    write=10.0,
+    pool=5.0,
+)
+_NIM_MAX_RETRIES = max(1, settings.nim_max_retries)
+_NIM_MAX_TOKENS = max(128, settings.nim_max_tokens)
 
 
 class NIMClient:
@@ -53,8 +59,8 @@ class NIMClient:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
-            # Keep this moderate to reduce Render/NIM timeout and limit pressure.
-            "max_tokens": 2048,
+            # Keep bounded to reduce timeout pressure and queue buildup.
+            "max_tokens": _NIM_MAX_TOKENS,
         }
 
         async with httpx.AsyncClient(timeout=_NIM_TIMEOUT) as client:
