@@ -63,9 +63,10 @@ class Settings:
     nim_model_neotron: str = os.getenv("NIM_MODEL_NEOTRON", "nvidia/llama-3.1-nemotron-70b-instruct")
     nim_model_qwen_docs: str = os.getenv("NIM_MODEL_QWEN_DOCS", "qwen/qwen2.5-coder-32b-instruct")
     nim_model_qwen_review: str = os.getenv("NIM_MODEL_QWEN_REVIEW", "qwen/qwen2.5-coder-32b-instruct")
-    nim_request_timeout_seconds: int = _int_env("NIM_REQUEST_TIMEOUT_SECONDS", 90, minimum=10)
-    nim_max_retries: int = _int_env("NIM_MAX_RETRIES", 2, minimum=1)
-    nim_max_tokens: int = _int_env("NIM_MAX_TOKENS", 1024, minimum=128)
+    nim_request_timeout_seconds: int = _int_env("NIM_REQUEST_TIMEOUT_SECONDS", 60, minimum=10)
+    nim_max_retries: int = _int_env("NIM_MAX_RETRIES", 3, minimum=1)
+    nim_max_tokens: int = _int_env("NIM_MAX_TOKENS", 512, minimum=128)
+    nim_rate_limit_rpm: int = _int_env("NIM_RATE_LIMIT_RPM", 40, minimum=1)
 
     # Hard caps to prevent job status from staying "processing" forever.
     job_phase_timeout_seconds: int = _int_env("JOB_PHASE_TIMEOUT_SECONDS", 300, minimum=60)

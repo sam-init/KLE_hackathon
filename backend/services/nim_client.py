@@ -12,14 +12,33 @@ from backend.utils.settings import settings
 logger = logging.getLogger(__name__)
 
 # Keep NIM calls bounded so background jobs do not stall indefinitely.
-_NIM_TIMEOUT = httpx.Timeout(
-    connect=10.0,
-    read=float(settings.nim_request_timeout_seconds),
-    write=10.0,
-    pool=5.0,
-)
+_NIM_TIMEOUT = float(settings.nim_request_timeout_seconds)
 _NIM_MAX_RETRIES = max(1, settings.nim_max_retries)
 _NIM_MAX_TOKENS = max(128, settings.nim_max_tokens)
+
+# Rate limiter: 40 rpm = 0.67 req/sec = 1.5 sec between requests
+_NIM_RATE_LIMIT_RPM = max(1, settings.nim_rate_limit_rpm)
+_MIN_REQUEST_INTERVAL = 60.0 / _NIM_RATE_LIMIT_RPM
+
+
+class RateLimiter:
+    """Token bucket rate limiter for API requests."""
+    
+    def __init__(self, rate_limit_rpm: int) -> None:
+        self.rate_limit_rpm = max(1, rate_limit_rpm)
+        self.min_interval = 60.0 / self.rate_limit_rpm
+        self.last_request_time = 0.0
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self) -> None:
+        """Wait until it's safe to make the next request."""
+        async with self._lock:
+            elapsed = time.perf_counter() - self.last_request_time
+            if elapsed < self.min_interval:
+                wait_time = self.min_interval - elapsed
+                logger.debug("NIM rate limit | waiting_ms=%.0f", wait_time * 1000)
+                await asyncio.sleep(wait_time)
+            self.last_request_time = time.perf_counter()
 
 
 class NIMClient:
@@ -31,6 +50,7 @@ class NIMClient:
             base = base[:-3]
         self.base_url = base
         self.api_key = settings.nim_api_key
+        self._rate_limiter = RateLimiter(_NIM_RATE_LIMIT_RPM)
 
     @property
     def enabled(self) -> bool:
@@ -65,6 +85,9 @@ class NIMClient:
 
         async with httpx.AsyncClient(timeout=_NIM_TIMEOUT) as client:
             for attempt in range(1, _NIM_MAX_RETRIES + 1):
+                # Respect rate limit before making request
+                await self._rate_limiter.acquire()
+                
                 started = time.perf_counter()
                 logger.info("NIM request started | model=%s attempt=%d/%d", model, attempt, _NIM_MAX_RETRIES)
                 try:
@@ -106,8 +129,10 @@ class NIMClient:
                     return None
 
                 if attempt < _NIM_MAX_RETRIES:
-                    logger.info("NIM retry scheduled | model=%s next_attempt=%d", model, attempt + 1)
-                    await asyncio.sleep(attempt * 2)
+                    # Exponential backoff: 2^attempt * 2 seconds (2s, 4s, 8s for attempts 1,2,3)
+                    backoff_seconds = (2 ** attempt) * 2
+                    logger.info("NIM retry scheduled | model=%s next_attempt=%d backoff_seconds=%d", model, attempt + 1, backoff_seconds)
+                    await asyncio.sleep(backoff_seconds)
 
         logger.warning("NIM request exhausted retries | model=%s", model)
         return None
