@@ -7,7 +7,7 @@ from typing import Any
 from agents.base_agent import AgentFinding, SEVERITY_ORDER
 from agents.orchestrator import ReviewOrchestrator
 from backend.services.nim_client import NIMClient
-from backend.services.persona import persona_style
+from backend.services.persona import persona_explanation_suffix, persona_fix_suffix, persona_style
 from backend.services.review_prompts import AGENT_PROMPTS, COMMON_CONSTRAINTS, JSON_SCHEMA_GUIDE
 from backend.services.structure_service import StructureService
 from backend.utils.settings import settings
@@ -327,21 +327,12 @@ Code input:
         return unique[:40]
 
     def _apply_persona(self, findings: list[AgentFinding], persona: str) -> list[AgentFinding]:
+        explanation_suffix = persona_explanation_suffix(persona)
+        fix_suffix = persona_fix_suffix(persona)
+
         for finding in findings:
-            if persona == "Intern":
-                finding.explanation = (
-                    f"{finding.explanation} Why this matters: this pattern can cause bugs that are hard to debug later."
-                )
-            elif persona == "Student":
-                finding.explanation = (
-                    f"{finding.explanation} Concept: this relates to maintainability and correctness under change."
-                )
-            elif persona == "Frontend Developer":
-                finding.fix_suggestion = (
-                    f"{finding.fix_suggestion} Prioritize user impact, component clarity, and accessibility behavior."
-                )
-            elif persona == "Backend Developer":
-                finding.fix_suggestion = (
-                    f"{finding.fix_suggestion} Prioritize reliability, performance, and service boundary clarity."
-                )
+            if explanation_suffix and explanation_suffix not in finding.explanation:
+                finding.explanation = f"{finding.explanation} {explanation_suffix}"
+            if fix_suffix and fix_suffix not in finding.fix_suggestion:
+                finding.fix_suggestion = f"{finding.fix_suggestion} {fix_suffix}"
         return findings
