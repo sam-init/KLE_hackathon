@@ -48,6 +48,17 @@ export type VisualizationBundle = {
   };
 };
 
+export const GROUP_PALETTE = [
+  "#7dd3fc",
+  "#34d399",
+  "#fbbf24",
+  "#f472b6",
+  "#a78bfa",
+  "#fb7185",
+  "#f97316",
+  "#2dd4bf",
+];
+
 type MutableTreeNode = {
   id: string;
   name: string;
@@ -103,6 +114,18 @@ function inferNodeKind(nodeKind: string, path: string): string {
 function getGroup(path: string): string {
   const [first] = path.split("/");
   return first || "root";
+}
+
+export function getGroupColor(group: string): string {
+  let hash = 0;
+  for (let index = 0; index < group.length; index += 1) {
+    hash = (hash * 31 + group.charCodeAt(index)) >>> 0;
+  }
+  return GROUP_PALETTE[hash % GROUP_PALETTE.length];
+}
+
+export function getNodeGroupFromPath(path: string): string {
+  return getGroup(path);
 }
 
 export function adaptGraphPayload(graph: GraphPayload): VisualizationBundle["graph"] {

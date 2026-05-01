@@ -1159,6 +1159,15 @@ details .detail-body {
   display: none;
 }
 
+.viz-shell.expanded-tree {
+  grid-template-columns: 1fr;
+}
+
+.viz-shell.expanded-tree .graph-panel,
+.viz-shell.expanded-tree .detail-panel {
+  display: none;
+}
+
 .viz-panel {
   display: flex;
   flex-direction: column;
@@ -1227,6 +1236,14 @@ details .detail-body {
   min-height: 72vh;
 }
 
+.viz-shell.expanded-tree .treeviz-panel {
+  min-height: 78vh;
+}
+
+.viz-shell.expanded-tree .treeviz-canvas {
+  min-height: 72vh;
+}
+
 .graph-panel .react-flow__renderer,
 .graph-panel .react-flow__container,
 .graph-panel .react-flow {
@@ -1275,6 +1292,65 @@ details .detail-body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.treeviz-panel .react-flow__renderer,
+.treeviz-panel .react-flow__container,
+.treeviz-panel .react-flow {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.04), transparent 28%),
+    linear-gradient(180deg, #05070c, #080b12 74%, #05070c);
+}
+
+.treeviz-canvas {
+  height: 100%;
+  min-height: 540px;
+}
+
+.treeviz-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 170px;
+}
+
+.treeviz-node.folder {
+  min-width: 140px;
+}
+
+.treeviz-dot {
+  display: inline-block;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.treeviz-dot.folder {
+  width: 16px;
+  height: 16px;
+  border: 3px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.treeviz-dot.file {
+  width: 18px;
+  height: 18px;
+}
+
+.treeviz-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.treeviz-copy strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.treeviz-copy span {
+  font-size: 11px;
+  color: #94a3b8;
+  word-break: break-word;
 }
 
 .tree-scroll {

@@ -117,6 +117,7 @@ export default function DashboardPage() {
     useState<VisualizationMode>("split");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [graphExpanded, setGraphExpanded] = useState(false);
+  const [treeExpanded, setTreeExpanded] = useState(false);
 
   const visualization = useMemo(
     () => (docsData ? createVisualizationBundle(docsData, graphDataset) : null),
@@ -145,6 +146,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (visualizationMode === "tree") {
       setGraphExpanded(false);
+    }
+  }, [visualizationMode]);
+
+  useEffect(() => {
+    if (visualizationMode === "graph") {
+      setTreeExpanded(false);
     }
   }, [visualizationMode]);
 
@@ -682,13 +689,20 @@ export default function DashboardPage() {
                       <div
                         className={`viz-shell mode-${visualizationMode} ${
                           graphExpanded ? "expanded-graph" : ""
+                        } ${
+                          treeExpanded ? "expanded-tree" : ""
                         }`}
                       >
                         {visualization && visualizationMode !== "graph" && (
                           <TreeView
                             tree={visualization.tree}
+                            graph={visualization.graph}
                             selectedNodeId={selectedNodeId}
                             onNodeSelect={setSelectedNodeId}
+                            isExpanded={treeExpanded}
+                            onToggleExpand={() =>
+                              setTreeExpanded((current) => !current)
+                            }
                           />
                         )}
 

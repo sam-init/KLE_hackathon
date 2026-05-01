@@ -18,6 +18,7 @@ import { useEffect, useMemo } from "react";
 import {
   AdaptedGraphNode,
   VisualizationBundle,
+  getGroupColor,
   getConnectedNodeIds,
 } from "@/src/utils/graphAdapter";
 
@@ -39,25 +40,6 @@ const NODE_COLORS: Record<string, string> = {
 
 function nodeColor(kind: string): string {
   return NODE_COLORS[kind] ?? "#94a3b8";
-}
-
-const GROUP_PALETTE = [
-  "#7dd3fc",
-  "#34d399",
-  "#fbbf24",
-  "#f472b6",
-  "#a78bfa",
-  "#fb7185",
-  "#f97316",
-  "#2dd4bf",
-];
-
-function groupColor(group: string): string {
-  let hash = 0;
-  for (let index = 0; index < group.length; index += 1) {
-    hash = (hash * 31 + group.charCodeAt(index)) >>> 0;
-  }
-  return GROUP_PALETTE[hash % GROUP_PALETTE.length];
 }
 
 function toRgb(color: string): string {
@@ -94,7 +76,7 @@ function layoutNodes(nodes: AdaptedGraphNode[]): Node[] {
       .sort((a, b) => a.path.localeCompare(b.path))
       .map((node, nodeIndex) => {
         const kindTint = nodeColor(node.kind);
-        const groupTint = groupColor(node.group);
+        const groupTint = getGroupColor(node.group);
 
         return {
           id: node.id,
@@ -148,7 +130,9 @@ function buildEdges(graph: VisualizationBundle["graph"]): Edge[] {
   return graph.edges.map((edge) => {
     const sourceNode = nodeMap.get(edge.source);
     const targetNode = nodeMap.get(edge.target);
-    const edgeTint = groupColor(sourceNode?.group ?? targetNode?.group ?? "root");
+    const edgeTint = getGroupColor(
+      sourceNode?.group ?? targetNode?.group ?? "root",
+    );
     return {
     id: edge.id,
     source: edge.source,
